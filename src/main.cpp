@@ -1,4 +1,8 @@
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "Renderer.hpp"
+
+gaia::Renderer g_renderer;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -8,47 +12,45 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
     const char CLASS_NAME[] = "GaiaWindow";
 
     WNDCLASS wc = {};
-
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
-
     RegisterClass(&wc);
 
     // Create the window.
-
     HWND hwnd = CreateWindowEx(
-        0,                          // Optional window styles.
-        CLASS_NAME,                 // Window class
-        "Gaia Engine Testbed",      // Window text
-        WS_OVERLAPPEDWINDOW,        // Window style
+        0,                     // Optional window styles.
+        CLASS_NAME,            // Window class
+        "Gaia Engine Testbed", // Window text
+        WS_OVERLAPPEDWINDOW,   // Window style
 
         // Size and position
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 
-        NULL,      // Parent window
-        NULL,      // Menu
+        nullptr,   // Parent window
+        nullptr,   // Menu
         hInstance, // Instance handle
-        NULL       // Additional application data
+        nullptr    // Additional application data
     );
 
-    if (hwnd == NULL)
-    {
-        return 0;
-    }
+    if (hwnd == nullptr)
+        return 1;
 
-    ShowWindow(hwnd, nCmdShow);
+    if (g_renderer.Create(hwnd) != 0)
+        return 1;
+    
+    ::ShowWindow(hwnd, SW_SHOW);
 
-    // Run the message loop.
-
+    // Main loop:
     MSG msg = {};
-    while(GetMessage(&msg, NULL, 0, 0))
+    while (::GetMessage(&msg, nullptr, 0, 0))
     {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        ::TranslateMessage(&msg);
+        ::DispatchMessage(&msg);
     }
 
-    return 0;
+    // Return the WM_QUIT return code.
+    return (int)msg.wParam;
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -56,20 +58,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     switch (uMsg)
     {
     case WM_DESTROY:
-        PostQuitMessage(0);
+        ::PostQuitMessage(0);
         return 0;
 
     case WM_PAINT:
     {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-
-        FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
-
-        EndPaint(hwnd, &ps);
+        g_renderer.Render();
         return 0;
     }
     }
 
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    return ::DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
