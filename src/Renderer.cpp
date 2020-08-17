@@ -3,6 +3,7 @@
 #include <d3dx12.h>
 #include <dxgi1_6.h>
 #include <cassert>
+#include "CommandQueue.hpp"
 
 namespace gaia
 {
@@ -14,10 +15,7 @@ Renderer::~Renderer()
     if (m_created)
     {
         // Ensure all commands are flushed before shutting down.
-        m_commandQueue->Signal(m_fence.Get(), ++m_fenceValue);
-        m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
-        DWORD ret = ::WaitForSingleObject(m_fenceEvent, 1000);
-        assert(ret == WAIT_OBJECT_0);
+        m_directCommandQueue->Flush();
     }
 }
 
@@ -56,20 +54,9 @@ int Renderer::Create(HWND hwnd)
     if (!SUCCEEDED(::D3D12CreateDevice(m_adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&m_device))))
         return 1;
 
-    // Create command queue
-    D3D12_COMMAND_QUEUE_DESC commandQueueDesc = {};
-    commandQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    if (!SUCCEEDED(m_device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(&m_commandQueue))))
-        return 1;
+    // Create command queues
+    m_directCommandQueue = std::make_unique<CommandQueue>(m_device.Get(), D3D12_COMMAND_LIST_TYPE_DIRECT);
 
-    // Create a fence
-    if (!SUCCEEDED(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence))))
-        return 1;
-
-    m_fenceEvent = ::CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    assert(m_fenceEvent);
-    
     // Create swapchain
     ComPtr<IDXGISwapChain1> swapChain1;
     DXGI_SWAP_CHAIN_DESC1 swapchainDesc = {};
@@ -80,7 +67,7 @@ int Renderer::Create(HWND hwnd)
     swapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapchainDesc.SampleDesc.Count = 1;
-    if (!SUCCEEDED(m_factory->CreateSwapChainForHwnd(m_commandQueue.Get(), hwnd, &swapchainDesc, nullptr, nullptr, &swapChain1)))
+    if (!SUCCEEDED(m_factory->CreateSwapChainForHwnd(m_directCommandQueue->GetCommandQueue(), hwnd, &swapchainDesc, nullptr, nullptr, &swapChain1)))
         return 1;
 
     // Cast to IDXGISwapChain3
@@ -129,42 +116,44 @@ int Renderer::Create(HWND hwnd)
 
 void Renderer::Render()
 {
-    // Prepare for next frame
     ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_currentBuffer].Get();
     ID3D12Resource* backBuffer = m_renderTargets[m_currentBuffer].Get();
+    BeginFrame(commandAllocator, backBuffer);
 
+    EndFrame(backBuffer);
+}
+
+void Renderer::BeginFrame(ID3D12CommandAllocator* commandAllocator, ID3D12Resource* backBuffer)
+{
+    // Prepare for next frame
     commandAllocator->Reset();
     m_commandList->Reset(commandAllocator, nullptr);
 
-    CD3DX12_RESOURCE_BARRIER barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+    CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-    m_commandList->ResourceBarrier(1, &barrier1);
+    m_commandList->ResourceBarrier(1, &barrier);
 
     // Clear backbuffer
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBuffer, m_rtvDescriptorSize);
-
     FLOAT clearColor[] = { 0.8f, 0.5f, 0.8f, 1.0f };
     m_commandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
+}
 
-    CD3DX12_RESOURCE_BARRIER barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+void Renderer::EndFrame(ID3D12Resource* backBuffer)
+{
+    CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-    m_commandList->ResourceBarrier(1, &barrier2);
+    m_commandList->ResourceBarrier(1, &barrier);
 
     // Submit draw (etc) commands
-    m_commandList->Close();
-    ID3D12CommandList* lists[] = { m_commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(1, lists);
+    m_frameFenceValues[m_currentBuffer] = m_directCommandQueue->Execute(m_commandList.Get());
 
     // Present buffer
-    m_frameFenceValues[m_currentBuffer] = ++m_fenceValue;
-    m_commandQueue->Signal(m_fence.Get(), m_frameFenceValues[m_currentBuffer]);
     m_swapChain->Present(1, 0);
     m_currentBuffer = m_swapChain->GetCurrentBackBufferIndex();
 
     // Wait for previous frame's fence
-    m_fence->SetEventOnCompletion(m_frameFenceValues[m_currentBuffer], m_fenceEvent);
-    ::WaitForSingleObject(m_fenceEvent, 1000);
+    m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer]);
 }
 
 }
