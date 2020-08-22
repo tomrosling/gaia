@@ -36,7 +36,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
     if (hwnd == nullptr)
         return 1;
 
-    if (g_renderer.Create(hwnd) != 0)
+    if (!g_renderer.Create(hwnd))
+        return 1;
+
+    if (!g_renderer.CreateHelloTriangle())
         return 1;
     
     ::ShowWindow(hwnd, SW_SHOW);
