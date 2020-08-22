@@ -147,26 +147,8 @@ bool Renderer::Create(HWND hwnd)
     return true;
 }
 
-bool Renderer::CreateHelloTriangle()
+bool Renderer::CreateDefaultPipelineState()
 {
-    // Upload vertex buffer (must be done via an intermediate resource)
-    ComPtr<ID3D12Resource> intermediateVB;
-    CreateBuffer(m_vertexBuffer, intermediateVB, sizeof(VertexData), VertexData);
-
-    // Create vertex buffer view
-    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    m_vertexBufferView.SizeInBytes = sizeof(VertexData);
-    m_vertexBufferView.StrideInBytes = sizeof(Vertex);
-
-    // Upload index buffer
-    ComPtr<ID3D12Resource> intermediateIB;
-    CreateBuffer(m_indexBuffer, intermediateIB, sizeof(IndexData), IndexData);
-    
-    // Create index buffer view
-    m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
-    m_indexBufferView.Format = DXGI_FORMAT_R16_UINT;
-    m_indexBufferView.SizeInBytes = sizeof(IndexData);
-
     // Load shaders
     // TODO: Add shader hotload support (D3DCompileFromFile)
     ComPtr<ID3DBlob> vertexShader;
@@ -177,7 +159,7 @@ bool Renderer::CreateHelloTriangle()
         return false;
     }
 
-    if(!SUCCEEDED(::D3DReadFileToBlob(L"pixel.cso", &pixelShader)))
+    if (!SUCCEEDED(::D3DReadFileToBlob(L"pixel.cso", &pixelShader)))
     {
         printf("Failed to load pixel shader!\n");
         return false;
@@ -226,7 +208,7 @@ bool Renderer::CreateHelloTriangle()
         CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
     };
-    
+
     D3D12_RT_FORMAT_ARRAY rtvFormats = {};
     rtvFormats.NumRenderTargets = 1;
     rtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -246,9 +228,31 @@ bool Renderer::CreateHelloTriangle()
         return false;
     }
 
+    return true;
+}
+
+void Renderer::CreateHelloTriangle()
+{
+    // Upload vertex buffer (must be done via an intermediate resource)
+    ComPtr<ID3D12Resource> intermediateVB;
+    CreateBuffer(m_vertexBuffer, intermediateVB, sizeof(VertexData), VertexData);
+
+    // Create vertex buffer view
+    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
+    m_vertexBufferView.SizeInBytes = sizeof(VertexData);
+    m_vertexBufferView.StrideInBytes = sizeof(Vertex);
+
+    // Upload index buffer
+    ComPtr<ID3D12Resource> intermediateIB;
+    CreateBuffer(m_indexBuffer, intermediateIB, sizeof(IndexData), IndexData);
+    
+    // Create index buffer view
+    m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
+    m_indexBufferView.Format = DXGI_FORMAT_R16_UINT;
+    m_indexBufferView.SizeInBytes = sizeof(IndexData);
+
     UINT64 fenceVal = m_copyCommandQueue->Execute(m_copyCommandList.Get());
     m_copyCommandQueue->WaitFence(fenceVal);
-    return true;
 }
 
 void Renderer::Render()

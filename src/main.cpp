@@ -39,8 +39,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
     if (!g_renderer.Create(hwnd))
         return 1;
 
-    if (!g_renderer.CreateHelloTriangle())
+    if (!g_renderer.CreateDefaultPipelineState())
         return 1;
+
+    // By this point, assume we have enough driver support to go without further error checks...
+    g_renderer.CreateHelloTriangle();
     
     ::ShowWindow(hwnd, SW_SHOW);
 

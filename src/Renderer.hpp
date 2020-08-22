@@ -30,7 +30,8 @@ public:
     ~Renderer();
 
     bool Create(HWND hwnd);
-    bool CreateHelloTriangle();
+    bool CreateDefaultPipelineState();
+    void CreateHelloTriangle();
     void Render();
 
 private:
