@@ -51,7 +51,9 @@ private:
     ComPtr<ID3D12GraphicsCommandList2> m_copyCommandList;
     ComPtr<IDXGISwapChain3> m_swapChain;
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
+    ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
     ComPtr<ID3D12Resource> m_renderTargets[BackbufferCount];
+    ComPtr<ID3D12Resource> m_depthBuffer;
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[BackbufferCount];
     ComPtr<ID3D12CommandAllocator> m_copyCommandAllocator;
 
@@ -65,6 +67,9 @@ private:
     UINT m_currentBuffer = 0;
     UINT m_rtvDescriptorSize = 0;
     bool m_created = false;
+
+    DirectX::XMMATRIX m_viewMat = DirectX::XMMatrixIdentity();
+    DirectX::XMMATRIX m_projMat = DirectX::XMMatrixIdentity();
 
     // Hello Triangle resources:
     ComPtr<ID3D12RootSignature> m_rootSignature;
