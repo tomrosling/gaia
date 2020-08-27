@@ -1,9 +1,5 @@
 #include "Camera.hpp"
 
-// TODO: Separate input system
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-
 namespace gaia
 {
 
@@ -11,11 +7,12 @@ using namespace DirectX;
 
 XMMATRIX Camera::Update(float dt)
 {
+    // TODO: Separate input system
     auto keyDown = [](int key)
     {
         return (::GetKeyState(key) & 0x8000) != 0;
     };
-
+    
     if (keyDown(VK_UP))
         m_rotx -= m_rotSpeed * dt;
     if (keyDown(VK_DOWN))

@@ -1,11 +1,4 @@
 #pragma once
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <wrl/client.h>
-#include <memory>
-
-#include <d3d12.h>
-#include <DirectXMath.h>
 
 interface IDXGIFactory4;
 interface IDXGIAdapter1;

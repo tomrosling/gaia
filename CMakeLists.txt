@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.0)
+cmake_minimum_required (VERSION 3.16)
 
 # Get the CMake built-in projects out of the way
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -16,6 +16,7 @@ source_group("Shaders" FILES ${shaders})
 add_executable(gaia WIN32 ${sources} ${headers} ${shaders})
 target_link_libraries(gaia d3d12.lib dxgi.lib d3dcompiler.lib)
 target_include_directories(gaia PRIVATE src "thirdparty/include")
+target_precompile_headers(gaia PRIVATE src/pch.hpp)
 
 if(MSVC)
     # Warnings as errors

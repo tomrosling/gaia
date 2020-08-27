@@ -1,5 +1,4 @@
 #include "CommandQueue.hpp"
-#include <cassert>
 
 namespace gaia
 {
