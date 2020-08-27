@@ -33,6 +33,7 @@ public:
     bool CreateDefaultPipelineState();
     void CreateHelloTriangle();
     void Render();
+    void SetViewMatrix(const DirectX::XMMATRIX& viewMat) { m_viewMat = viewMat; }
 
 private:
     template <typename T>

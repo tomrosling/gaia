@@ -178,11 +178,7 @@ bool Renderer::Create(HWND hwnd)
 
     // Leave copy command list open, so we can immediately use it to upload data.
 
-    // Create matrices.
-    m_viewMat = XMMatrixLookAtLH(
-        { 0.f, 0.f, -5.f, 1.f },
-        { 0.f, 0.f, 0.f, 1.f },
-        { 0.f, 1.f, 0.f, 0.f });
+    // Create projection matrix.
     m_projMat = XMMatrixPerspectiveFovLH(0.25f * XM_PI, 1.333f, 0.01f, 1000.f);
 
     m_created = true;

@@ -1,8 +1,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include "Renderer.hpp"
+#include "Camera.hpp"
 
 gaia::Renderer g_renderer;
+gaia::Camera g_camera;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -67,8 +69,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         ::PostQuitMessage(0);
         return 0;
 
+    case WM_KEYUP:
+        if (wParam == VK_ESCAPE)
+        {
+            ::PostQuitMessage(0);
+            return 0;
+        }
+        break;
+
     case WM_PAINT:
     {
+        // Update the view matrix
+        DirectX::XMMATRIX camMat = g_camera.Update(0.016f);           // TODO: Actually measure time!
+        DirectX::XMMATRIX viewMat = XMMatrixInverse(nullptr, camMat); // TODO: Fast affine inverse!
+        g_renderer.SetViewMatrix(viewMat);
+
+        // Render
         g_renderer.Render();
         return 0;
     }
