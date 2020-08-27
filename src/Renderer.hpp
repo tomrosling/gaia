@@ -19,22 +19,34 @@ class CommandQueue;
 class Renderer
 {
 public:
+    struct Vertex
+    {
+        DirectX::XMFLOAT3 position;
+        uint8_t colour[3];
+        uint8_t pad;
+    };
+
     Renderer();
     ~Renderer();
 
     bool Create(HWND hwnd);
     bool CreateDefaultPipelineState();
     void CreateHelloTriangle();
-    void Render();
+    void RenderHelloTriangle();
+    void BeginFrame();
+    void EndFrame();
+
     void SetViewMatrix(const DirectX::XMMATRIX& viewMat) { m_viewMat = viewMat; }
 
-private:
-    template <typename T>
-    using ComPtr = Microsoft::WRL::ComPtr<T>;
+    // TODO: Something better than this.
+    void SetModelMatrix(const DirectX::XMMATRIX& modelMat);
 
-    void BeginFrame(ID3D12CommandAllocator* commandAllocator, ID3D12Resource* backBuffer);
-    void EndFrame(ID3D12Resource* backBuffer);
+    ID3D12GraphicsCommandList2& GetDirectCommandList() { assert(m_directCommandList); return *m_directCommandList.Get(); }
+    void BeginUploads();
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
+    void EndUploads();
+
+private:
 
     static const UINT BackbufferCount = 2;
 

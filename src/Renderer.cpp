@@ -6,21 +6,14 @@ namespace gaia
 
 using namespace DirectX;
 
-struct Vertex
-{
-    XMFLOAT3 position;
-    uint8_t colour[3];
-    uint8_t pad;
-};
-
-const Vertex VertexData[] = {
+static const Renderer::Vertex VertexData[] = {
     { { -0.5f, -0.5f, -0.5f }, { 0xff, 0x00, 0x00 } },
     { {  0.0f,  0.5f,  0.0f }, { 0x00, 0xff, 0x00 } },
     { {  0.5f, -0.5f, -0.5f }, { 0x00, 0x00, 0xff } },
     { {  0.0f, -0.5f,  0.5f }, { 0xff, 0xff, 0xff } }
 };
 
-const uint16_t IndexData[] = {
+static const uint16_t IndexData[] = {
     0, 1, 2,
     2, 1, 3,
     3, 1, 0,
@@ -169,8 +162,7 @@ bool Renderer::Create(HWND hwnd)
 
     if (FAILED(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, m_copyCommandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_copyCommandList))))
         return false;
-
-    // Leave copy command list open, so we can immediately use it to upload data.
+    m_copyCommandList->Close();
 
     // Create projection matrix.
     m_projMat = XMMatrixPerspectiveFovLH(0.25f * XM_PI, 1.333f, 0.01f, 1000.f);
@@ -268,6 +260,8 @@ bool Renderer::CreateDefaultPipelineState()
 
 void Renderer::CreateHelloTriangle()
 {
+    BeginUploads();
+
     // Upload vertex buffer (must be done via an intermediate resource)
     ComPtr<ID3D12Resource> intermediateVB;
     CreateBuffer(m_vertexBuffer, intermediateVB, sizeof(VertexData), VertexData);
@@ -286,40 +280,30 @@ void Renderer::CreateHelloTriangle()
     m_indexBufferView.Format = DXGI_FORMAT_R16_UINT;
     m_indexBufferView.SizeInBytes = sizeof(IndexData);
 
-    UINT64 fenceVal = m_copyCommandQueue->Execute(m_copyCommandList.Get());
-    m_copyCommandQueue->WaitFence(fenceVal);
+    EndUploads();
 }
 
-void Renderer::Render()
+void Renderer::RenderHelloTriangle()
 {
-    ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_currentBuffer].Get();
-    ID3D12Resource* backBuffer = m_renderTargets[m_currentBuffer].Get();
-    BeginFrame(commandAllocator, backBuffer);
-
-    // Set PSO/shader state
-    m_directCommandList->SetPipelineState(m_pipelineState.Get());
-    m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
-
     // Update the model matrix
     static float rx = 0.f;
     static float ry = 0.f;
     rx += 0.01f;
     ry += 0.02f;
-    XMMATRIX modelMat = XMMatrixRotationY(ry) * XMMatrixRotationX(rx);
-    XMMATRIX mvpMat = modelMat * m_viewMat * m_projMat;
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMat, 0);
+    SetModelMatrix(XMMatrixRotationY(ry) * XMMatrixRotationX(rx));
 
     // Draw our lovely tetrahedron   
     m_directCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_directCommandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
     m_directCommandList->IASetIndexBuffer(&m_indexBufferView);
     m_directCommandList->DrawIndexedInstanced((UINT)std::size(IndexData), 1, 0, 0, 0);
-
-    EndFrame(backBuffer);
 }
 
-void Renderer::BeginFrame(ID3D12CommandAllocator* commandAllocator, ID3D12Resource* backBuffer)
+void Renderer::BeginFrame()
 {
+    ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_currentBuffer].Get();
+    ID3D12Resource* backBuffer = m_renderTargets[m_currentBuffer].Get();
+
     // Reset command list
     commandAllocator->Reset();
     m_directCommandList->Reset(commandAllocator, nullptr);
@@ -342,13 +326,17 @@ void Renderer::BeginFrame(ID3D12CommandAllocator* commandAllocator, ID3D12Resour
     m_directCommandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     m_directCommandList->RSSetViewports(1, &m_viewport);
     m_directCommandList->RSSetScissorRects(1, &m_scissorRect);
+
+    // Set PSO/shader state
+    m_directCommandList->SetPipelineState(m_pipelineState.Get());
+    m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
 }
 
-void Renderer::EndFrame(ID3D12Resource* backBuffer)
+void Renderer::EndFrame()
 {
     // Transition to present state
     CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-        backBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        m_renderTargets[m_currentBuffer].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
     m_directCommandList->ResourceBarrier(1, &barrier);
 
     // Submit draw (etc) commands
@@ -360,6 +348,17 @@ void Renderer::EndFrame(ID3D12Resource* backBuffer)
 
     // Wait for previous frame's fence
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer]);
+}
+
+void Renderer::SetModelMatrix(const DirectX::XMMATRIX& modelMat)
+{
+    XMMATRIX mvpMat = modelMat * m_viewMat * m_projMat;
+    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMat, 0);
+}
+
+void Renderer::BeginUploads()
+{
+    m_copyCommandList->Reset(m_copyCommandAllocator.Get(), nullptr);
 }
 
 void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
@@ -388,6 +387,12 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
     subresourceData.RowPitch = size;
     subresourceData.SlicePitch = size;
     UpdateSubresources(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
+}
+
+void Renderer::EndUploads()
+{
+    UINT64 fenceVal = m_copyCommandQueue->Execute(m_copyCommandList.Get());
+    m_copyCommandQueue->WaitFence(fenceVal);
 }
 
 }

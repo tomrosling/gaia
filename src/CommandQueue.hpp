@@ -1,6 +1,4 @@
 #pragma once
-#include <d3d12.h>
-#include <wrl/client.h>
 
 namespace gaia
 {
@@ -17,9 +15,6 @@ public:
     void Flush();
 
 private:
-    template <typename T>
-    using ComPtr = Microsoft::WRL::ComPtr<T>;
-
     ComPtr<ID3D12CommandQueue> m_commandQueue;
     ComPtr<ID3D12Fence> m_fence;
     HANDLE m_fenceEvent = nullptr;

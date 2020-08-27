@@ -1,8 +1,10 @@
 #include "Renderer.hpp"
 #include "Camera.hpp"
+#include "Terrain.hpp"
 
 gaia::Renderer g_renderer;
 gaia::Camera g_camera;
+std::unique_ptr<gaia::Terrain> g_terrain;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -44,6 +46,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
 
     // By this point, assume we have enough driver support to go without further error checks...
     g_renderer.CreateHelloTriangle();
+    g_terrain = std::make_unique<gaia::Terrain>(g_renderer);
     
     ::ShowWindow(hwnd, SW_SHOW);
 
@@ -77,13 +80,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_PAINT:
     {
+        g_renderer.BeginFrame();
+
         // Update the view matrix
         DirectX::XMMATRIX camMat = g_camera.Update(0.016f);           // TODO: Actually measure time!
         DirectX::XMMATRIX viewMat = XMMatrixInverse(nullptr, camMat); // TODO: Fast affine inverse!
         g_renderer.SetViewMatrix(viewMat);
 
-        // Render
-        g_renderer.Render();
+        g_terrain->Render(g_renderer);
+        g_renderer.RenderHelloTriangle();
+
+        g_renderer.EndFrame();
         return 0;
     }
     }
