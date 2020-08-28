@@ -6,7 +6,7 @@ namespace gaia
 
 using namespace DirectX;
 
-static const Renderer::Vertex VertexData[] = {
+static const Vertex VertexData[] = {
     { { -0.5f, -0.5f, -0.5f }, { 0xff, 0x00, 0x00 } },
     { {  0.0f,  0.5f,  0.0f }, { 0x00, 0xff, 0x00 } },
     { {  0.5f, -0.5f, -0.5f }, { 0x00, 0x00, 0xff } },
@@ -290,7 +290,7 @@ void Renderer::RenderHelloTriangle()
     static float ry = 0.f;
     rx += 0.01f;
     ry += 0.02f;
-    SetModelMatrix(XMMatrixRotationY(ry) * XMMatrixRotationX(rx));
+    SetModelMatrix(XMMatrixRotationY(ry) * XMMatrixRotationX(rx) * XMMatrixTranslation(0.f, 1.f, 0.f));
 
     // Draw our lovely tetrahedron   
     m_directCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

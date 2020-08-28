@@ -16,16 +16,16 @@ namespace gaia
 
 class CommandQueue;
 
+struct Vertex
+{
+    DirectX::XMFLOAT3 position;
+    uint8_t colour[3];
+    uint8_t pad;
+};
+
 class Renderer
 {
 public:
-    struct Vertex
-    {
-        DirectX::XMFLOAT3 position;
-        uint8_t colour[3];
-        uint8_t pad;
-    };
-
     Renderer();
     ~Renderer();
 
