@@ -41,7 +41,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
     if (!g_renderer.Create(hwnd))
         return 1;
 
-    if (!g_renderer.CreateDefaultPipelineState())
+    if (!g_renderer.LoadCompiledShaders())
         return 1;
 
     // By this point, assume we have enough driver support to go without further error checks...
@@ -75,6 +75,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             ::PostQuitMessage(0);
             return 0;
+        }
+
+        if (wParam == VK_F5)
+        {
+            g_renderer.HotloadShaders();
         }
         break;
 

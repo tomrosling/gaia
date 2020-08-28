@@ -171,24 +171,52 @@ bool Renderer::Create(HWND hwnd)
     return true;
 }
 
-bool Renderer::CreateDefaultPipelineState()
+bool Renderer::LoadCompiledShaders()
 {
-    // Load shaders
-    // TODO: Add shader hotload support (D3DCompileFromFile)
+    // Production: load precompiled shaders
     ComPtr<ID3DBlob> vertexShader;
     ComPtr<ID3DBlob> pixelShader;
-    if (!SUCCEEDED(::D3DReadFileToBlob(L"vertex.cso", &vertexShader)))
+    if (FAILED(::D3DReadFileToBlob(L"vertex.cso", &vertexShader)))
     {
-        printf("Failed to load vertex shader!\n");
+        DebugOut("Failed to load vertex shader file!");
         return false;
     }
 
-    if (!SUCCEEDED(::D3DReadFileToBlob(L"pixel.cso", &pixelShader)))
+    if (FAILED(::D3DReadFileToBlob(L"pixel.cso", &pixelShader)))
     {
-        printf("Failed to load pixel shader!\n");
+        DebugOut("Failed to load pixel shader file!");
         return false;
     }
 
+    return CreateDefaultPipelineState(vertexShader.Get(), pixelShader.Get());
+}
+
+bool Renderer::HotloadShaders()
+{
+    // Development: compile from files on the fly
+    ComPtr<ID3DBlob> vertexShader;
+    ComPtr<ID3DBlob> pixelShader;
+    ComPtr<ID3DBlob> error;
+    if (FAILED(::D3DCompileFromFile(L"vertex.hlsl", nullptr, nullptr, "main", "vs_5_1", 0, 0, &vertexShader, &error)))
+    {
+        DebugOut("Failed to load vertex shader:\n\n%s\n\n", error->GetBufferPointer());
+        return false;
+    }
+
+    if (FAILED(::D3DCompileFromFile(L"pixel.hlsl", nullptr, nullptr, "main", "ps_5_1", 0, 0, &pixelShader, &error)))
+    {
+        DebugOut("Failed to load pixel shader:\n\n%s\n\n", error->GetBufferPointer());
+        return false;
+    }
+
+    // Force a full CPU/GPU sync then recreate the PSO.
+    m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
+
+    return CreateDefaultPipelineState(vertexShader.Get(), pixelShader.Get());
+}
+
+bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader)
+{
     // Define vertex layout
     D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -219,7 +247,7 @@ bool Renderer::CreateDefaultPipelineState()
     ::D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &rootSigBlob, nullptr);
     if (FAILED(m_device->CreateRootSignature(0, rootSigBlob->GetBufferPointer(), rootSigBlob->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature))))
     {
-        printf("Failed to create root signature!\n");
+        DebugOut("Failed to create root signature!\n");
         return false;
     }
 
@@ -243,15 +271,15 @@ bool Renderer::CreateDefaultPipelineState()
     pipelineStateStream.rootSignature = m_rootSignature.Get();
     pipelineStateStream.inputLayout = { inputLayout, (UINT)std::size(inputLayout) };
     pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
-    pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
+    pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader);
+    pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader);
     pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
     pipelineStateStream.rtvFormats = rtvFormats;
 
     D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
     if (FAILED(m_device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
     {
-        printf("Failed to create pipeline state object!\n");
+        DebugOut("Failed to create pipeline state object!\n");
         return false;
     }
 

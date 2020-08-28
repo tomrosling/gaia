@@ -18,4 +18,15 @@ namespace gaia
 
 using Microsoft::WRL::ComPtr;
 
+inline void DebugOut(const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int size = vsnprintf(nullptr, 0, fmt, args);
+    char* buf = (char*)alloca(size);
+    vsnprintf(buf, size, fmt, args);
+    OutputDebugStringA(buf);
+    va_end(args);
+}
+
 }

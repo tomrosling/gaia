@@ -30,7 +30,8 @@ public:
     ~Renderer();
 
     bool Create(HWND hwnd);
-    bool CreateDefaultPipelineState();
+    bool LoadCompiledShaders();
+    bool HotloadShaders();
     void CreateHelloTriangle();
     void RenderHelloTriangle();
     void BeginFrame();
@@ -47,6 +48,7 @@ public:
     void EndUploads();
 
 private:
+    bool CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader);
 
     static const UINT BackbufferCount = 2;
 
