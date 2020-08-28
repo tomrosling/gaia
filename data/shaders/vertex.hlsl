@@ -1,13 +1,15 @@
-struct ModelViewProjection
+struct GaiaConstantsT
 {
-    matrix mvp;
+    matrix mvpMatrix;
+    float3 camPos;
 };
  
-ConstantBuffer<ModelViewProjection> ModelViewProjectionCB : register(b0);
+ConstantBuffer<GaiaConstantsT> GaiaConstants : register(b0);
  
 struct VertexPosColor
 {
     float3 pos : POSITION;
+    float3 nrm : NORMAL;
     float3 col : COLOUR;
 };
  
@@ -21,8 +23,14 @@ VertexShaderOutput main(VertexPosColor IN)
 {
     VertexShaderOutput OUT;
  
-    OUT.pos = mul(ModelViewProjectionCB.mvp, float4(IN.pos, 1.0f));
-    OUT.col = float4(IN.col, 1.0f);
+    OUT.pos = mul(GaiaConstants.mvpMatrix, float4(IN.pos, 1.f));
+
+    // TODO: Transform IN.nrm into world(?) space
+    
+    // "Headlight" behaviour: light dir == view dirw
+    float3 viewDir = normalize(GaiaConstants.camPos - IN.pos);
+    float ndotv = dot(IN.nrm, viewDir);
+    OUT.col = float4(ndotv * IN.col, 1.0f);
  
     return OUT;
 }

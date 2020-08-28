@@ -6,11 +6,17 @@ namespace gaia
 
 using namespace DirectX;
 
+struct ConstantBuffer
+{
+    XMMATRIX mvpMatrix;
+    XMFLOAT3 camPos;
+};
+
 static const Vertex VertexData[] = {
-    { { -0.5f, -0.5f, -0.5f }, { 0xff, 0x00, 0x00 } },
-    { {  0.0f,  0.5f,  0.0f }, { 0x00, 0xff, 0x00 } },
-    { {  0.5f, -0.5f, -0.5f }, { 0x00, 0x00, 0xff } },
-    { {  0.0f, -0.5f,  0.5f }, { 0xff, 0xff, 0xff } }
+    { { -0.5f, -0.5f, -0.5f }, { -0.577f, -0.577f, -0.577f }, { 0xff, 0x00, 0x00 } },
+    { {  0.0f,  0.5f,  0.0f }, { 0.f,         1.f,     0.f }, { 0x00, 0xff, 0x00 } },
+    { {  0.5f, -0.5f, -0.5f }, { 0.577f,  -0.577f, -0.577f }, { 0x00, 0x00, 0xff } },
+    { {  0.0f, -0.5f,  0.5f }, { 0.0f,    -0.707f,  0.707f }, { 0xff, 0xff, 0xff } }
 };
 
 static const uint16_t IndexData[] = {
@@ -220,6 +226,7 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
     // Define vertex layout
     D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
@@ -233,7 +240,7 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
 
     // Create root signature
     CD3DX12_ROOT_PARAMETER1 rootParam;
-    rootParam.InitAsConstants(sizeof(XMMATRIX) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX); // MVP matrix
+    rootParam.InitAsConstants(sizeof(ConstantBuffer) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
@@ -381,7 +388,12 @@ void Renderer::EndFrame()
 void Renderer::SetModelMatrix(const DirectX::XMMATRIX& modelMat)
 {
     XMMATRIX mvpMat = modelMat * m_viewMat * m_projMat;
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMat, 0);
+    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMat, offsetof(ConstantBuffer, mvpMatrix) / 4);
+
+    // TODO: Work out a better place to set this.
+    // Global state like this should probably be in a separate constant buffer to the model matrix.
+    XMVECTOR camPos = XMVector3Transform(XMVectorSet(0.f, 0.f, 0.f, 1.f), XMMatrixInverse(nullptr, m_viewMat));
+    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(XMFLOAT3) / 4, &camPos, offsetof(ConstantBuffer, camPos) / 4);
 }
 
 void Renderer::BeginUploads()

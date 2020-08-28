@@ -19,6 +19,7 @@ class CommandQueue;
 struct Vertex
 {
     DirectX::XMFLOAT3 position;
+    DirectX::XMFLOAT3 normal;
     uint8_t colour[3];
     uint8_t pad;
 };
