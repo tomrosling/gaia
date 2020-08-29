@@ -7,11 +7,16 @@
 #include <windows.h>
 #include <wrl/client.h>
 
+#undef max
+#undef min
+
 #include <DirectXMath.h>
 #include <d3d12.h>
 #include <d3dx12.h>
 #include <d3dcompiler.h>
 #include <dxgi1_6.h>
+
+#include "GaiaMath.hpp"
 
 namespace gaia
 {
@@ -25,7 +30,7 @@ inline void DebugOut(const char* fmt, ...)
     int size = vsnprintf(nullptr, 0, fmt, args);
     char* buf = (char*)alloca(size);
     vsnprintf(buf, size, fmt, args);
-    OutputDebugStringA(buf);
+    ::OutputDebugStringA(buf);
     va_end(args);
 }
 

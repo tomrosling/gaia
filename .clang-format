@@ -11,3 +11,4 @@ BreakConstructorInitializersBeforeComma: true
 NamespaceIndentation: None
 AlignEscapedNewlines: DontAlign
 Cpp11BracedListStyle: false
+AllowShortFunctionsOnASingleLine: true

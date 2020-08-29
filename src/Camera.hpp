@@ -6,11 +6,11 @@ namespace gaia
 class Camera
 {
 public:
-    DirectX::XMMATRIX Update(float dt);
+    Mat4f Update(float dt);
 
 private:
     // State
-    DirectX::XMVECTORF32 m_pos = { 0.f, 1.f, -5.f, 1.f };
+    Vec3f m_pos{ 0.f, 1.f, -5.f };
     float m_rotx = 0.f;
     float m_rotY = 0.f;
 

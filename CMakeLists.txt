@@ -15,7 +15,7 @@ source_group("Shaders" FILES ${shaders})
 
 add_executable(gaia WIN32 ${sources} ${headers} ${shaders})
 target_link_libraries(gaia d3d12.lib dxgi.lib d3dcompiler.lib)
-target_include_directories(gaia PRIVATE src "thirdparty/include")
+target_include_directories(gaia PRIVATE src "dependencies/d3dx12" "dependencies/glm")
 target_precompile_headers(gaia PRIVATE src/pch.hpp)
 
 # Create symlinks for shader source to allow hotloading.

@@ -18,8 +18,8 @@ class CommandQueue;
 
 struct Vertex
 {
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT3 normal;
+    Vec3f position;
+    Vec3f normal;
     uint8_t colour[3];
     uint8_t pad;
 };
@@ -38,10 +38,10 @@ public:
     void BeginFrame();
     void EndFrame();
 
-    void SetViewMatrix(const DirectX::XMMATRIX& viewMat) { m_viewMat = viewMat; }
+    void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
 
     // TODO: Something better than this.
-    void SetModelMatrix(const DirectX::XMMATRIX& modelMat);
+    void SetModelMatrix(const Mat4f& modelMat);
 
     ID3D12GraphicsCommandList2& GetDirectCommandList() { assert(m_directCommandList); return *m_directCommandList.Get(); }
     void BeginUploads();
@@ -77,8 +77,8 @@ private:
     UINT m_rtvDescriptorSize = 0;
     bool m_created = false;
 
-    DirectX::XMMATRIX m_viewMat = DirectX::XMMatrixIdentity();
-    DirectX::XMMATRIX m_projMat = DirectX::XMMatrixIdentity();
+    Mat4f m_viewMat = math::identity<Mat4f>();
+    Mat4f m_projMat = math::identity<Mat4f>();
 
     // Hello Triangle resources:
     ComPtr<ID3D12RootSignature> m_rootSignature;

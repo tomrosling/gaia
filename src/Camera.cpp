@@ -3,9 +3,7 @@
 namespace gaia
 {
 
-using namespace DirectX;
-
-XMMATRIX Camera::Update(float dt)
+Mat4f Camera::Update(float dt)
 {
     // TODO: Separate input system
     auto keyDown = [](int key)
@@ -22,23 +20,23 @@ XMMATRIX Camera::Update(float dt)
     if (keyDown(VK_RIGHT))
         m_rotY += m_rotSpeed * dt;
 
-    XMVECTORF32 translation = { 0.f, 0.f, 0.f, 1.f };
+    Vec3f translation(0.f, 0.f, 0.f);
     if (keyDown('A'))
-        translation.f[0] -= m_linSpeed * dt;
+        translation.x -= m_linSpeed * dt;
     if (keyDown('D'))
-        translation.f[0] += m_linSpeed * dt;
+        translation.x += m_linSpeed * dt;
     if (keyDown('Q'))
-        translation.f[1] -= m_linSpeed * dt;
+        translation.y -= m_linSpeed * dt;
     if (keyDown('E'))
-        translation.f[1] += m_linSpeed * dt;
+        translation.y += m_linSpeed * dt;
     if (keyDown('S'))
-        translation.f[2] -= m_linSpeed * dt;
+        translation.z -= m_linSpeed * dt;
     if (keyDown('W'))
-        translation.f[2] += m_linSpeed * dt;
+        translation.z += m_linSpeed * dt;
 
-    XMMATRIX rotMat = XMMatrixRotationX(m_rotx) * XMMatrixRotationY(m_rotY);
-    m_pos.v += XMVector3Transform(translation, rotMat);
-    return rotMat * XMMatrixTranslationFromVector(m_pos);
+    Mat3f rotMat = math::Mat3fMakeRotationY(m_rotY) * math::Mat3fMakeRotationX(m_rotx);
+    m_pos += rotMat * translation;
+    return math::Mat4fCompose(rotMat, m_pos);
 }
 
 }
