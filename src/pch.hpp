@@ -16,24 +16,12 @@
 #include <d3dcompiler.h>
 #include <dxgi1_6.h>
 
-#include <glm/glm.hpp>
-#include <glm/gtx/norm.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
+#include "GaiaMath.hpp"
 
 namespace gaia
 {
 
 using Microsoft::WRL::ComPtr;
-
-using Vec2f = glm::vec2;
-using Vec3f = glm::vec3;
-using Vec4f = glm::vec4;
-using Mat3f = glm::mat3;
-using Mat4f = glm::mat4;
-using Quatf = glm::quat;
-
-// Alias namespace used for global functions (dot, cross, etc).
-namespace math = glm;
 
 inline void DebugOut(const char* fmt, ...)
 {

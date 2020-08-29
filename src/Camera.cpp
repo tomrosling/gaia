@@ -34,18 +34,9 @@ Mat4f Camera::Update(float dt)
     if (keyDown('W'))
         translation.z += m_linSpeed * dt;
 
-    // TODO: These functions are unintuitive.
-    // e.g. translate() pre-multiplies a translation matrix, onto the first param,
-    // rather than just post-applying the translation.
-    // Write our own, and also some constants for identity and unit vectors.
-    Mat4f rotX = math::rotate(math::identity<Mat4f>(), m_rotx, Vec3f(1.f, 0.f, 0.f));
-    Mat4f rotY = math::rotate(math::identity<Mat4f>(), m_rotY, Vec3f(0.f, 1.f, 0.f));
-    Mat4f rotMat = rotY * rotX;
-
-    m_pos += Vec3f(rotMat * Vec4f(translation, 1.f));
-    Mat4f trans = math::translate(Mat4f(1.f), m_pos);
-    rotMat = trans * rotMat;
-    return rotMat;
+    Mat3f rotMat = math::Mat3fMakeRotationY(m_rotY) * math::Mat3fMakeRotationX(m_rotx);
+    m_pos += rotMat * translation;
+    return math::Mat4fCompose(rotMat, m_pos);
 }
 
 }

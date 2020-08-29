@@ -325,10 +325,9 @@ void Renderer::RenderHelloTriangle()
     static float ry = 0.f;
     rx += 0.01f;
     ry += 0.02f;
-    Mat4f modelMat =
-        math::translate(math::identity<Mat4f>(), Vec3f(0.f, 1.f, 0.f))
-      * math::rotate(math::identity<Mat4f>(), ry, Vec3f(0.f, 1.f, 0.f))
-      * math::rotate(math::identity<Mat4f>(), rx, Vec3f(1.f, 0.f, 0.f));
+    Mat4f modelMat = math::Mat4fCompose(
+        math::Mat3fMakeRotationY(ry) * math::Mat3fMakeRotationX(rx),
+        Vec3f(0.f, 1.f, 0.f));
     SetModelMatrix(modelMat);
 
     // Draw our lovely tetrahedron   
