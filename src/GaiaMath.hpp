@@ -1,3 +1,4 @@
+#define GLM_FORCE_EXPLICIT_CTOR
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/norm.hpp>
@@ -14,6 +15,8 @@ using Mat4f = glm::mat4;
 using Quatf = glm::quat;
 
 // Constants:
+static constexpr float Pif = glm::pi<float>();
+
 static constexpr Vec2f Vec2fZero(0.f, 0.f);
 static constexpr Vec2f Vec2fX(1.f, 0.f);
 static constexpr Vec2f Vec2fY(0.f, 1.f);
@@ -56,19 +59,19 @@ inline Mat4f Mat4fCompose(const Mat3f& m3, const Vec3f& translation)
 inline Mat3f Mat3fMakeRotationX(float rx)
 {
     // TODO: inline and optimise.
-    return glm::rotate(Mat4fIdentity, rx, Vec3fX);
+    return Mat3f(glm::rotate(Mat4fIdentity, rx, Vec3fX));
 }
 
 inline Mat3f Mat3fMakeRotationY(float ry)
 {
     // TODO: inline and optimise.
-    return glm::rotate(Mat4fIdentity, ry, Vec3fY);
+    return Mat3f(glm::rotate(Mat4fIdentity, ry, Vec3fY));
 }
 
 inline Mat3f Mat3fMakeRotationZ(float rz)
 {
     // TODO: inline and optimise.
-    return glm::rotate(Mat4fIdentity, rz, Vec3fZ);
+    return Mat3f(glm::rotate(Mat4fIdentity, rz, Vec3fZ));
 }
 
 } // namespace math

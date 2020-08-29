@@ -1,10 +1,7 @@
-struct GaiaConstantsT
+cbuffer Constants : register(b0)
 {
-    matrix mvpMatrix;
-    float3 camPos;
+    matrix MvpMatrix;
 };
- 
-ConstantBuffer<GaiaConstantsT> GaiaConstants : register(b0);
  
 struct VertexPosColor
 {
@@ -15,7 +12,9 @@ struct VertexPosColor
  
 struct VertexShaderOutput
 {
-    float4 col : COLOUR;
+    float3 modelpos : POSITION;
+    float3 nrm : NORMAL;
+    float3 col : COLOUR;
     float4 pos : SV_Position;
 };
  
@@ -23,14 +22,13 @@ VertexShaderOutput main(VertexPosColor IN)
 {
     VertexShaderOutput OUT;
  
-    OUT.pos = mul(GaiaConstants.mvpMatrix, float4(IN.pos, 1.f));
+    OUT.pos = mul(MvpMatrix, float4(IN.pos, 1.0));
 
     // TODO: Transform IN.nrm into world(?) space
-    
-    // "Headlight" behaviour: light dir == view dir
-    float3 viewDir = normalize(GaiaConstants.camPos - IN.pos);
-    float ndotv = dot(IN.nrm, viewDir);
-    OUT.col = float4(ndotv * IN.col, 1.0f);
+    OUT.modelpos = IN.pos;
+    OUT.nrm = IN.nrm;
+
+    OUT.col = IN.col;
  
     return OUT;
 }

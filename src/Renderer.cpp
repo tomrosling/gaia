@@ -4,11 +4,13 @@
 namespace gaia
 {
 
-using namespace DirectX;
-
-struct ConstantBuffer
+struct VertexConstantBuffer
 {
     Mat4f mvpMatrix;
+};
+
+struct PixelConstantBuffer
+{
     Vec3f camPos;
 };
 
@@ -171,7 +173,7 @@ bool Renderer::Create(HWND hwnd)
     m_copyCommandList->Close();
 
     // Create projection matrix.
-    m_projMat = math::perspectiveFovLH(0.25f * XM_PI, (float)Width, (float)Height, 0.01f, 1000.f);
+    m_projMat = math::perspectiveFovLH(0.25f * Pif, (float)Width, (float)Height, 0.01f, 1000.f);
 
     m_created = true;
     return true;
@@ -239,16 +241,16 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
     }
 
     // Create root signature
-    CD3DX12_ROOT_PARAMETER1 rootParam;
-    rootParam.InitAsConstants(sizeof(ConstantBuffer) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+    CD3DX12_ROOT_PARAMETER1 rootParams[2];
+    rootParams[0].InitAsConstants(sizeof(VertexConstantBuffer) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+    rootParams[1].InitAsConstants(sizeof(PixelConstantBuffer) / 4, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL);
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
-    rootSignatureDesc.Init_1_1(1, &rootParam, 0, nullptr, rootSignatureFlags);
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+    rootSignatureDesc.Init_1_1((UINT)std::size(rootParams), rootParams, 0, nullptr, rootSignatureFlags);
 
     ComPtr<ID3DBlob> rootSigBlob;
     ::D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &rootSigBlob, nullptr);
@@ -391,12 +393,12 @@ void Renderer::EndFrame()
 void Renderer::SetModelMatrix(const Mat4f& modelMat)
 {
     Mat4f mvpMat = m_projMat * m_viewMat * modelMat;
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Mat4f) / 4, &mvpMat, offsetof(ConstantBuffer, mvpMatrix) / 4);
+    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Mat4f) / 4, &mvpMat, offsetof(VertexConstantBuffer, mvpMatrix) / 4);
 
     // TODO: Work out a better place to set this.
     // Global state like this should probably be in a separate constant buffer to the model matrix.
-    Vec3f camPos = math::affineInverse(m_viewMat)[3];
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Vec3f) / 4, &camPos, offsetof(ConstantBuffer, camPos) / 4);
+    Vec3f camPos(math::affineInverse(m_viewMat)[3]);
+    m_directCommandList->SetGraphicsRoot32BitConstants(1, sizeof(Vec3f) / 4, &camPos, offsetof(PixelConstantBuffer, camPos) / 4);
 }
 
 void Renderer::BeginUploads()

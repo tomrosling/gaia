@@ -4,8 +4,6 @@
 namespace gaia
 {
 
-using namespace DirectX;
-
 const int CellsX = 63;
 const int CellsZ = 63;
 const int NumVerts = (CellsX + 1) * (CellsZ + 1);
