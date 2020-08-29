@@ -23,16 +23,17 @@ static Vec3f TriangleNormal(const Vec3f& p0, const Vec3f& p1, const Vec3f& p2)
 };
 
 Terrain::Terrain(Renderer& renderer)
-    : m_vertexData(std::make_unique<Vertex[]>(NumVerts))
-    , m_indexData(std::make_unique<uint16_t[]>(NumIndices))
 {
+    auto vertexData = std::make_unique<Vertex[]>(NumVerts);
+    auto indexData = std::make_unique<uint16_t[]>(NumIndices);
+
     // Initialise pos, col / generate heights
     for (int z = 0; z <= CellsZ; ++z)
     {
         for (int x = 0; x <= CellsX; ++x)
         {
-            Vertex& v = m_vertexData[VertexAddress(x, z)];
-            float height = cosf(0.2f * (float)x) * sinf(0.3f * (float)z);
+            Vertex& v = vertexData[VertexAddress(x, z)];
+            float height = 0.2f + cosf(0.2f * (float)x) * sinf(0.3f * (float)z);
             height += 0.2f * (float)rand() / (float)RAND_MAX;
             v.position.x = 0.25f * ((float)x - 0.5f * (float)CellsX);
             v.position.y = height;
@@ -52,41 +53,41 @@ Terrain::Terrain(Renderer& renderer)
     {
         for (int x = 0; x <= CellsX; ++x)
         {
-            Vertex& v = m_vertexData[VertexAddress(x, z)];
+            Vertex& v = vertexData[VertexAddress(x, z)];
 
             Vec3f normal = { 0.f, 0.f, 0.f };
             if (x > 0)
             {
-                const Vec3f& left = m_vertexData[VertexAddress(x - 1, z)].position;
+                const Vec3f& left = vertexData[VertexAddress(x - 1, z)].position;
                 if (z > 0)
                 {
                     // Below left
                     // should this account for both triangles?
-                    const Vec3f& down = m_vertexData[VertexAddress(x, z - 1)].position;
+                    const Vec3f& down = vertexData[VertexAddress(x, z - 1)].position;
                     normal += TriangleNormal(left, v.position, down);
                 }
                 if (z < CellsZ)
                 {
                     // Above left
-                    const Vec3f& up = m_vertexData[VertexAddress(x, z + 1)].position;
+                    const Vec3f& up = vertexData[VertexAddress(x, z + 1)].position;
                     normal += TriangleNormal(left, up, v.position);
                 }
             }
 
             if (x < CellsX)
             {
-                const Vec3f& right = m_vertexData[VertexAddress(x + 1, z)].position;
+                const Vec3f& right = vertexData[VertexAddress(x + 1, z)].position;
                 if (z > 0)
                 {
                     // Below right
                     // should this account for both triangles?
-                    const Vec3f& down = m_vertexData[VertexAddress(x, z - 1)].position;
+                    const Vec3f& down = vertexData[VertexAddress(x, z - 1)].position;
                     normal += TriangleNormal(down, v.position, right);
                 }
                 if (z < CellsZ)
                 {
                     // Above right
-                    const Vec3f& up = m_vertexData[VertexAddress(x, z + 1)].position;
+                    const Vec3f& up = vertexData[VertexAddress(x, z + 1)].position;
                     normal += TriangleNormal(v.position, up, right);
                 }
             }
@@ -101,7 +102,7 @@ Terrain::Terrain(Renderer& renderer)
     {
         for (int x = 0; x < CellsX; ++x)
         {
-            uint16_t* p = &m_indexData[2 * 3 * (CellsX * z + x)];
+            uint16_t* p = &indexData[2 * 3 * (CellsX * z + x)];
             p[0] = (CellsX + 1) * (z + 0) + (x + 0);
             p[1] = (CellsX + 1) * (z + 1) + (x + 0);
             p[2] = (CellsX + 1) * (z + 1) + (x + 1);
@@ -113,36 +114,65 @@ Terrain::Terrain(Renderer& renderer)
 
     renderer.BeginUploads();
 
-    // Upload vertex buffer (must be done via an intermediate resource)
+    // TODO: just keep a vector (or static array) on Renderer of intermediate buffers, cleared on EndUploads
+    auto createVertexBuffer = [](Renderer& renderer, VertexBuffer& vb, ComPtr<ID3D12Resource>& intermediateBuffer, int vertexCount, const void* data)
+    {
+        renderer.CreateBuffer(vb.buffer, intermediateBuffer, vertexCount * sizeof(Vertex), data);
+        vb.view.BufferLocation = vb.buffer->GetGPUVirtualAddress();
+        vb.view.SizeInBytes = vertexCount * sizeof(Vertex);
+        vb.view.StrideInBytes = sizeof(Vertex);
+    };
+
+    auto createIndexBuffer = [](Renderer& renderer, IndexBuffer& ib, ComPtr<ID3D12Resource>& intermediateBuffer, int indexCount, const void* data) {
+        renderer.CreateBuffer(ib.buffer, intermediateBuffer, indexCount * sizeof(uint16_t), data);
+        ib.view.BufferLocation = ib.buffer->GetGPUVirtualAddress();
+        ib.view.Format = DXGI_FORMAT_R16_UINT;
+        ib.view.SizeInBytes = indexCount * sizeof(uint16_t);
+    };
+
+    // Main terrain data
     ComPtr<ID3D12Resource> intermediateVB;
-    renderer.CreateBuffer(m_vertexBuffer, intermediateVB, NumVerts * sizeof(Vertex), m_vertexData.get());
-
-    // Create vertex buffer view
-    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    m_vertexBufferView.SizeInBytes = NumVerts * sizeof(Vertex);
-    m_vertexBufferView.StrideInBytes = sizeof(Vertex);
-
-    // Upload index buffer
+    createVertexBuffer(renderer, m_vertexBuffer, intermediateVB, NumVerts, vertexData.get());
     ComPtr<ID3D12Resource> intermediateIB;
-    renderer.CreateBuffer(m_indexBuffer, intermediateIB, NumIndices * sizeof(uint16_t), m_indexData.get());
+    createIndexBuffer(renderer, m_indexBuffer, intermediateIB, NumIndices, indexData.get());
 
-    // Create index buffer view
-    m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
-    m_indexBufferView.Format = DXGI_FORMAT_R16_UINT;
-    m_indexBufferView.SizeInBytes = NumIndices * sizeof(uint16_t);
+    const Vertex WaterVerts[] = {
+        { { -10.f, 0.f, -10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
+        { { -10.f, 0.f,  10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
+        { {  10.f, 0.f,  10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
+        { {  10.f, 0.f, -10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
+    };
+
+    const uint16_t WaterIndices[] = {
+        0, 1, 2,
+        0, 2, 3
+    };
+
+    // Water plane
+    ComPtr<ID3D12Resource> intermediateWaterVB;
+    createVertexBuffer(renderer, m_waterVertexBuffer, intermediateWaterVB, (int)std::size(WaterVerts), WaterVerts);
+    ComPtr<ID3D12Resource> intermediateWaterIB;
+    createIndexBuffer(renderer, m_waterIndexBuffer, intermediateWaterIB, (int)std::size(WaterIndices), WaterIndices);
 
     renderer.EndUploads();
 }
 
 void Terrain::Render(Renderer& renderer)
 {
-    renderer.SetModelMatrix(math::identity<Mat4f>());
-    
+    renderer.SetModelMatrix(Mat4fIdentity);
+
     ID3D12GraphicsCommandList2& commandList = renderer.GetDirectCommandList();
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    commandList.IASetVertexBuffers(0, 1, &m_vertexBufferView);
-    commandList.IASetIndexBuffer(&m_indexBufferView);
+
+    // Render the terrain itself.
+    commandList.IASetVertexBuffers(0, 1, &m_vertexBuffer.view);
+    commandList.IASetIndexBuffer(&m_indexBuffer.view);
     commandList.DrawIndexedInstanced(NumIndices, 1, 0, 0, 0);
+
+    // Render "water".
+    commandList.IASetVertexBuffers(0, 1, &m_waterVertexBuffer.view);
+    commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
+    commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16_t), 1, 0, 0, 0);
 }
 
 }
