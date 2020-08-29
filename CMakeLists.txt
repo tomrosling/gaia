@@ -18,6 +18,8 @@ target_link_libraries(gaia d3d12.lib dxgi.lib d3dcompiler.lib)
 target_include_directories(gaia PRIVATE src "dependencies/d3dx12" "dependencies/glm")
 target_precompile_headers(gaia PRIVATE src/pch.hpp)
 
+set_property(TARGET gaia PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "\$(ProjectDir)/\$(Configuration)")
+
 # Create symlinks for shader source to allow hotloading.
 foreach(config ${CMAKE_CONFIGURATION_TYPES})
   set(outputDir "${CMAKE_CURRENT_BINARY_DIR}/${config}")
