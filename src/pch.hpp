@@ -18,6 +18,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtx/norm.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 
 namespace gaia
 {

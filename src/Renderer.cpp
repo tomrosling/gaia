@@ -8,8 +8,8 @@ using namespace DirectX;
 
 struct ConstantBuffer
 {
-    XMMATRIX mvpMatrix;
-    XMFLOAT3 camPos;
+    Mat4f mvpMatrix;
+    Vec3f camPos;
 };
 
 static const Vertex VertexData[] = {
@@ -171,7 +171,7 @@ bool Renderer::Create(HWND hwnd)
     m_copyCommandList->Close();
 
     // Create projection matrix.
-    m_projMat = XMMatrixPerspectiveFovLH(0.25f * XM_PI, 1.333f, 0.01f, 1000.f);
+    m_projMat = math::perspectiveFovLH(0.25f * XM_PI, (float)Width, (float)Height, 0.01f, 1000.f);
 
     m_created = true;
     return true;
@@ -325,7 +325,11 @@ void Renderer::RenderHelloTriangle()
     static float ry = 0.f;
     rx += 0.01f;
     ry += 0.02f;
-    SetModelMatrix(XMMatrixRotationY(ry) * XMMatrixRotationX(rx) * XMMatrixTranslation(0.f, 1.f, 0.f));
+    Mat4f modelMat =
+        math::translate(math::identity<Mat4f>(), Vec3f(0.f, 1.f, 0.f))
+      * math::rotate(math::identity<Mat4f>(), ry, Vec3f(0.f, 1.f, 0.f))
+      * math::rotate(math::identity<Mat4f>(), rx, Vec3f(1.f, 0.f, 0.f));
+    SetModelMatrix(modelMat);
 
     // Draw our lovely tetrahedron   
     m_directCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -385,15 +389,15 @@ void Renderer::EndFrame()
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer]);
 }
 
-void Renderer::SetModelMatrix(const DirectX::XMMATRIX& modelMat)
+void Renderer::SetModelMatrix(const Mat4f& modelMat)
 {
-    XMMATRIX mvpMat = modelMat * m_viewMat * m_projMat;
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(XMMATRIX) / 4, &mvpMat, offsetof(ConstantBuffer, mvpMatrix) / 4);
+    Mat4f mvpMat = m_projMat * m_viewMat * modelMat;
+    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Mat4f) / 4, &mvpMat, offsetof(ConstantBuffer, mvpMatrix) / 4);
 
     // TODO: Work out a better place to set this.
     // Global state like this should probably be in a separate constant buffer to the model matrix.
-    XMVECTOR camPos = XMVector3Transform(XMVectorSet(0.f, 0.f, 0.f, 1.f), XMMatrixInverse(nullptr, m_viewMat));
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(XMFLOAT3) / 4, &camPos, offsetof(ConstantBuffer, camPos) / 4);
+    Vec3f camPos = math::affineInverse(m_viewMat)[3];
+    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Vec3f) / 4, &camPos, offsetof(ConstantBuffer, camPos) / 4);
 }
 
 void Renderer::BeginUploads()

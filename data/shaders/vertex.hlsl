@@ -27,7 +27,7 @@ VertexShaderOutput main(VertexPosColor IN)
 
     // TODO: Transform IN.nrm into world(?) space
     
-    // "Headlight" behaviour: light dir == view dirw
+    // "Headlight" behaviour: light dir == view dir
     float3 viewDir = normalize(GaiaConstants.camPos - IN.pos);
     float ndotv = dot(IN.nrm, viewDir);
     OUT.col = float4(ndotv * IN.col, 1.0f);

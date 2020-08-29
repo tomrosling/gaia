@@ -19,39 +19,9 @@ static int VertexAddress(int x, int z)
     return (CellsX + 1) * z + x;
 }
 
-// TODO: Maths lib!
-static XMFLOAT3 XMFloat3Add(const XMFLOAT3& u, const XMFLOAT3& v)
+static Vec3f TriangleNormal(const Vec3f& p0, const Vec3f& p1, const Vec3f& p2)
 {
-    return { u.x + v.x, u.y + v.y, u.z + v.z };
-}
-
-static XMFLOAT3 XMFloat3Sub(const XMFLOAT3& u, const XMFLOAT3& v)
-{
-    return { u.x - v.x, u.y - v.y, u.z - v.z };
-}
-
-static XMFLOAT3 XMFloat3Normalise(const XMFLOAT3& v)
-{
-    float lengthSq = v.x * v.x + v.y * v.y + v.z * v.z;
-    assert(lengthSq > 0.f);
-    float length = sqrtf(lengthSq);
-    return { v.x / length, v.y / length, v.z / length };
-}
-
-static XMFLOAT3 XMFloat3Cross(const XMFLOAT3& u, const XMFLOAT3& v)
-{
-    return {
-        u.y * v.z - u.z * v.y,
-        u.z * v.x - u.x * v.z,
-        u.x * v.y - u.y * v.x
-    };
-}
-
-static XMFLOAT3 TriangleNormal(const XMFLOAT3& p0, const XMFLOAT3& p1, const XMFLOAT3& p2)
-{
-    XMFLOAT3 d1 = XMFloat3Sub(p1, p0);
-    XMFLOAT3 d2 = XMFloat3Sub(p2, p0);
-    return XMFloat3Normalise(XMFloat3Cross(d1, d2));
+    return math::normalize(math::cross(p1 - p0, p2 - p0));
 };
 
 Terrain::Terrain(Renderer& renderer)
@@ -86,48 +56,44 @@ Terrain::Terrain(Renderer& renderer)
         {
             Vertex& v = m_vertexData[VertexAddress(x, z)];
 
-            XMFLOAT3 normal = { 0.f, 0.f, 0.f };
+            Vec3f normal = { 0.f, 0.f, 0.f };
             if (x > 0)
             {
-                const XMFLOAT3& left = m_vertexData[VertexAddress(x - 1, z)].position;
+                const Vec3f& left = m_vertexData[VertexAddress(x - 1, z)].position;
                 if (z > 0)
                 {
                     // Below left
                     // should this account for both triangles?
-                    const XMFLOAT3& down = m_vertexData[VertexAddress(x, z - 1)].position;
-                    XMFLOAT3 triNrm = TriangleNormal(left, v.position, down);
-                    normal = XMFloat3Add(normal, triNrm);
+                    const Vec3f& down = m_vertexData[VertexAddress(x, z - 1)].position;
+                    normal += TriangleNormal(left, v.position, down);
                 }
                 if (z < CellsZ)
                 {
                     // Above left
-                    const DirectX::XMFLOAT3& up = m_vertexData[VertexAddress(x, z + 1)].position;
-                    XMFLOAT3 triNrm = TriangleNormal(left, up, v.position);
-                    normal = XMFloat3Add(normal, triNrm);
+                    const Vec3f& up = m_vertexData[VertexAddress(x, z + 1)].position;
+                    normal += TriangleNormal(left, up, v.position);
                 }
             }
 
             if (x < CellsX)
             {
-                const DirectX::XMFLOAT3& right = m_vertexData[VertexAddress(x + 1, z)].position;
+                const Vec3f& right = m_vertexData[VertexAddress(x + 1, z)].position;
                 if (z > 0)
                 {
                     // Below right
                     // should this account for both triangles?
-                    const XMFLOAT3& down = m_vertexData[VertexAddress(x, z - 1)].position;
-                    XMFLOAT3 triNrm = TriangleNormal(down, v.position, right);
-                    normal = XMFloat3Add(normal, triNrm);
+                    const Vec3f& down = m_vertexData[VertexAddress(x, z - 1)].position;
+                    normal += TriangleNormal(down, v.position, right);
                 }
                 if (z < CellsZ)
                 {
                     // Above right
-                    const XMFLOAT3& up = m_vertexData[VertexAddress(x, z + 1)].position;
-                    XMFLOAT3 triNrm = TriangleNormal(v.position, up, right);
-                    normal = XMFloat3Add(normal, triNrm);
+                    const Vec3f& up = m_vertexData[VertexAddress(x, z + 1)].position;
+                    normal += TriangleNormal(v.position, up, right);
                 }
             }
 
-            v.normal = XMFloat3Normalise(normal);
+            v.normal = math::normalize(normal);
         }
     }
 
@@ -172,7 +138,7 @@ Terrain::Terrain(Renderer& renderer)
 
 void Terrain::Render(Renderer& renderer)
 {
-    renderer.SetModelMatrix(DirectX::XMMatrixIdentity());
+    renderer.SetModelMatrix(math::identity<Mat4f>());
     
     ID3D12GraphicsCommandList2& commandList = renderer.GetDirectCommandList();
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
