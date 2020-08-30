@@ -5,6 +5,8 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 project(gaia)
 
+set(CMAKE_CXX_STANDARD 17)
+
 file(GLOB sources "src/*.cpp")
 file(GLOB headers "src/*.hpp")
 file(GLOB shaders "data/shaders/*.hlsl")

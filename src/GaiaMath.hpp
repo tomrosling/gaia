@@ -74,6 +74,13 @@ inline Mat3f Mat3fMakeRotationZ(float rz)
     return Mat3f(glm::rotate(Mat4fIdentity, rz, Vec3fZ));
 }
 
+template<typename T>
+T Lerp(T a, T b, float t)
+{
+    assert(0.f <= t && t <= 1.f);
+    return a + (T)(t * (float)(b - a));
+}
+
 } // namespace math
 
 } // namespace gaia

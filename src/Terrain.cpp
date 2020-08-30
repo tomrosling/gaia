@@ -1,6 +1,8 @@
 #include "Terrain.hpp"
 #include "Renderer.hpp"
 
+#include <algorithm>
+
 namespace gaia
 {
 
@@ -42,10 +44,10 @@ Terrain::Terrain(Renderer& renderer)
 
             // Leave v.normal uninitialised for now...
 
-            uint8_t brightness = 0x80;
-            v.colour[0] = brightness;
-            v.colour[1] = brightness;
-            v.colour[2] = brightness;
+            float t = std::clamp(height - 0.2f, 0.f, 1.f);
+            v.colour[0] = math::Lerp(0x00, 0xff, t);
+            v.colour[1] = math::Lerp(0x80, 0xff, t);
+            v.colour[2] = math::Lerp(0x00, 0xff, t);
             v.colour[3] = 0xff;
         }
     }
