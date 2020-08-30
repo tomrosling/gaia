@@ -1,16 +1,17 @@
 #include "Terrain.hpp"
 #include "Renderer.hpp"
 
-#include <algorithm>
+#define STB_PERLIN_IMPLEMENTATION
+#include <stb_perlin.h>
 
 namespace gaia
 {
 
-const int CellsX = 63;
-const int CellsZ = 63;
+const int CellsX = 254;
+const int CellsZ = 254;
 const int NumVerts = (CellsX + 1) * (CellsZ + 1);
 const int NumIndices = 2 * 3 * CellsX * CellsZ;
-const float CellSize = 0.25f;
+const float CellSize = 0.05f;
 static_assert(NumVerts <= USHRT_MAX, "Index format too small");
 
 static int VertexAddress(int x, int z) 
@@ -25,7 +26,7 @@ static Vec3f TriangleNormal(const Vec3f& p0, const Vec3f& p1, const Vec3f& p2)
     return math::normalize(math::cross(p1 - p0, p2 - p0));
 };
 
-Terrain::Terrain(Renderer& renderer)
+void Terrain::Build(Renderer& renderer)
 {
     auto vertexData = std::make_unique<Vertex[]>(NumVerts);
     auto indexData = std::make_unique<uint16_t[]>(NumIndices);
@@ -35,16 +36,38 @@ Terrain::Terrain(Renderer& renderer)
     {
         for (int x = 0; x <= CellsX; ++x)
         {
+            const struct
+            {
+                float frequency;
+                float amplitude;
+            } Octaves[] = { 
+                { 1.f / 131.f, 3.f },
+                { 1.f / 51.f, 1.f },
+                { 1.f / 13.f, 0.15f }
+            };
+
             Vertex& v = vertexData[VertexAddress(x, z)];
-            float height = 0.2f + cosf(0.2f * (float)x) * sinf(0.3f * (float)z);
-            height += 0.2f * (float)rand() / (float)RAND_MAX;
+            float height = 0.5f;
+
+            // May be better just to use one of the built in stb_perlin functions
+            // to generate multiple octaves, but this is quite nice for now.
+            for (int i = 0; i < (int)std::size(Octaves); ++i)
+            {
+                auto [frequency, amplitude] = Octaves[i];
+                height += amplitude * stb_perlin_noise3_seed((float)x * frequency, 0.f, (float)z * frequency, 0, 0, 0, i);
+            }
+
+            // Cheaply add a little bit of texture.
+            // TODO: Remove and add normal map (and just diffuse textures).
+            height += 0.005f * (float)rand() / (float)RAND_MAX;
+            
             v.position.x = CellSize * ((float)x - 0.5f * (float)CellsX);
             v.position.y = height;
             v.position.z = CellSize * ((float)z - 0.5f * (float)CellsZ);
 
             // Leave v.normal uninitialised for now...
 
-            float t = std::clamp(height - 0.2f, 0.f, 1.f);
+            float t = std::clamp(height - 0.8f, 0.f, 1.f);
             v.colour[0] = math::Lerp(0x00, 0xff, t);
             v.colour[1] = math::Lerp(0x80, 0xff, t);
             v.colour[2] = math::Lerp(0x00, 0xff, t);

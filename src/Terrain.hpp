@@ -9,7 +9,7 @@ struct Vertex;
 class Terrain
 {
 public:
-    Terrain(Renderer& renderer);
+    void Build(Renderer& renderer);
     void Render(Renderer& renderer);
 
 private:

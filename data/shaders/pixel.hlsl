@@ -19,9 +19,9 @@ float4 main(PixelShaderInput IN) : SV_Target
     float3 diffuse = ndotl * IN.col.rgb;
     
     // Specular: this is probably awful.
-    float3 r = reflect(LightDir, IN.nrm);
-    float3 viewDir = normalize(CamPos - IN.modelpos);
-    float specular = pow(saturate(dot(r, viewDir)), 256.0);
+    //float3 r = reflect(LightDir, IN.nrm);
+    //float3 viewDir = normalize(CamPos - IN.modelpos);
+    //float specular = pow(saturate(dot(r, viewDir)), 256.0);
 
-    return float4(0.9 * diffuse + 0.1 * specular, IN.col.a);
+    return float4(0.9 * diffuse /*+ 0.1 * specular*/, IN.col.a);
 }

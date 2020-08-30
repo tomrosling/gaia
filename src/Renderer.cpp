@@ -415,6 +415,9 @@ void Renderer::SetModelMatrix(const Mat4f& modelMat)
 
 void Renderer::BeginUploads()
 {
+    // TODO: Generally unnecessary sync. Hack for recreating terrain (should double buffer instead).
+    m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
+
     m_copyCommandList->Reset(m_copyCommandAllocator.Get(), nullptr);
 }
 

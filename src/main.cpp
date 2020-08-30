@@ -6,7 +6,7 @@ using namespace gaia;
 
 Renderer g_renderer;
 Camera g_camera;
-std::unique_ptr<Terrain> g_terrain;
+Terrain g_terrain;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -48,7 +48,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
 
     // By this point, assume we have enough driver support to go without further error checks...
     g_renderer.CreateHelloTriangle();
-    g_terrain = std::make_unique<Terrain>(g_renderer);
+    g_terrain.Build(g_renderer);
     
     ::ShowWindow(hwnd, SW_SHOW);
 
@@ -83,6 +83,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             g_renderer.HotloadShaders();
         }
+
+        if (wParam == VK_F6)
+        {
+            g_terrain.Build(g_renderer);
+        }
         break;
 
     case WM_PAINT:
@@ -94,7 +99,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         Mat4f viewMat = math::affineInverse(camMat);
         g_renderer.SetViewMatrix(viewMat);
 
-        g_terrain->Render(g_renderer);
+        g_terrain.Render(g_renderer);
         g_renderer.RenderHelloTriangle();
 
         g_renderer.EndFrame();

@@ -1,4 +1,5 @@
 #include <memory>
+#include <algorithm>
 #include <cstdlib>
 #include <cassert>
 #include <climits>
