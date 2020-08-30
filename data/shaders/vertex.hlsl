@@ -7,14 +7,14 @@ struct VertexPosColor
 {
     float3 pos : POSITION;
     float3 nrm : NORMAL;
-    float3 col : COLOUR;
+    float4 col : COLOUR;
 };
  
 struct VertexShaderOutput
 {
     float3 modelpos : POSITION;
     float3 nrm : NORMAL;
-    float3 col : COLOUR;
+    float4 col : COLOUR;
     float4 pos : SV_Position;
 };
  

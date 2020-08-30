@@ -15,10 +15,10 @@ struct PixelConstantBuffer
 };
 
 static const Vertex VertexData[] = {
-    { { -0.5f, -0.5f, -0.5f }, { -0.577f, -0.577f, -0.577f }, { 0xff, 0x00, 0x00 } },
-    { {  0.0f,  0.5f,  0.0f }, { 0.f,         1.f,     0.f }, { 0x00, 0xff, 0x00 } },
-    { {  0.5f, -0.5f, -0.5f }, { 0.577f,  -0.577f, -0.577f }, { 0x00, 0x00, 0xff } },
-    { {  0.0f, -0.5f,  0.5f }, { 0.0f,    -0.707f,  0.707f }, { 0xff, 0xff, 0xff } }
+    { { -0.5f, -0.5f, -0.5f }, { -0.577f, -0.577f, -0.577f }, { 0xff, 0x00, 0x00, 0xff } },
+    { {  0.0f,  0.5f,  0.0f }, { 0.f,         1.f,     0.f }, { 0x00, 0xff, 0x00, 0xff } },
+    { {  0.5f, -0.5f, -0.5f }, { 0.577f,  -0.577f, -0.577f }, { 0x00, 0x00, 0xff, 0xff } },
+    { {  0.0f, -0.5f,  0.5f }, { 0.0f,    -0.707f,  0.707f }, { 0xff, 0xff, 0xff, 0xff } }
 };
 
 static const uint16_t IndexData[] = {
@@ -270,6 +270,7 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
         CD3DX12_PIPELINE_STATE_STREAM_PS ps;
         CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
+        CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend;
     };
 
     D3D12_RT_FORMAT_ARRAY rtvFormats = {};
@@ -284,6 +285,17 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
     pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader);
     pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
     pipelineStateStream.rtvFormats = rtvFormats;
+
+    // Enable blending.
+    // TODO: Separate pass for transparent objects instead.
+    D3D12_RENDER_TARGET_BLEND_DESC& rtBlendDesc = ((CD3DX12_BLEND_DESC&)pipelineStateStream.blend).RenderTarget[0];
+    rtBlendDesc.BlendEnable = true;
+    rtBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+    rtBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 
     D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
     if (FAILED(m_device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
@@ -355,7 +367,7 @@ void Renderer::BeginFrame()
 
     // Clear backbuffer
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBuffer, m_rtvDescriptorSize);
-    float clearColor[] = { 0.8f, 0.5f, 0.8f, 1.0f };
+    float clearColor[] = { 0.8f, 0.5f, 0.8f, 0.0f };
     m_directCommandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
 
     // Clear depth buffer

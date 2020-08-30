@@ -8,6 +8,7 @@ const int CellsX = 63;
 const int CellsZ = 63;
 const int NumVerts = (CellsX + 1) * (CellsZ + 1);
 const int NumIndices = 2 * 3 * CellsX * CellsZ;
+const float CellSize = 0.25f;
 static_assert(NumVerts <= USHRT_MAX, "Index format too small");
 
 static int VertexAddress(int x, int z) 
@@ -35,9 +36,9 @@ Terrain::Terrain(Renderer& renderer)
             Vertex& v = vertexData[VertexAddress(x, z)];
             float height = 0.2f + cosf(0.2f * (float)x) * sinf(0.3f * (float)z);
             height += 0.2f * (float)rand() / (float)RAND_MAX;
-            v.position.x = 0.25f * ((float)x - 0.5f * (float)CellsX);
+            v.position.x = CellSize * ((float)x - 0.5f * (float)CellsX);
             v.position.y = height;
-            v.position.z = 0.25f * ((float)z - 0.5f * (float)CellsZ);
+            v.position.z = CellSize * ((float)z - 0.5f * (float)CellsZ);
 
             // Leave v.normal uninitialised for now...
 
@@ -45,6 +46,7 @@ Terrain::Terrain(Renderer& renderer)
             v.colour[0] = brightness;
             v.colour[1] = brightness;
             v.colour[2] = brightness;
+            v.colour[3] = 0xff;
         }
     }
 
@@ -136,11 +138,13 @@ Terrain::Terrain(Renderer& renderer)
     ComPtr<ID3D12Resource> intermediateIB;
     createIndexBuffer(renderer, m_indexBuffer, intermediateIB, NumIndices, indexData.get());
 
+    const float HalfGridSizeX = 0.5f * CellSize * (float)CellsX;
+    const float HalfGridSizeZ = 0.5f * CellSize * (float)CellsZ;
     const Vertex WaterVerts[] = {
-        { { -10.f, 0.f, -10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
-        { { -10.f, 0.f,  10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
-        { {  10.f, 0.f,  10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
-        { {  10.f, 0.f, -10.f }, Vec3fY, { 0x20, 0x70, 0xff } },
+        { { -HalfGridSizeX, 0.f, -HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
+        { { -HalfGridSizeX, 0.f,  HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
+        { {  HalfGridSizeX, 0.f,  HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
+        { {  HalfGridSizeX, 0.f, -HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
     };
 
     const uint16_t WaterIndices[] = {
