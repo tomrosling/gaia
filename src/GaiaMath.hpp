@@ -14,6 +14,10 @@ using Mat3f = glm::mat3;
 using Mat4f = glm::mat4;
 using Quatf = glm::quat;
 
+using Vec2i = glm::i32vec2;
+using Vec3i = glm::i32vec3;
+using Vec4i = glm::i32vec4;
+
 // Constants:
 static constexpr float Pif = glm::pi<float>();
 
@@ -35,6 +39,10 @@ static constexpr Vec4f Vec4fW(0.f, 0.f, 0.f, 1.f);
 static constexpr Mat3f Mat3fIdentity = glm::identity<Mat3f>();
 static constexpr Mat4f Mat4fIdentity = glm::identity<Mat4f>();
 static constexpr Quatf QuatfIdentity = glm::identity<Quatf>();
+
+static constexpr Vec2i Vec2iZero(0, 0);
+static constexpr Vec3i Vec3iZero(0, 0, 0);
+static constexpr Vec4i Vec4iZero(0, 0, 0, 0);
 
 namespace math
 {

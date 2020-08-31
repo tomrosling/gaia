@@ -1,5 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?> 
 <AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010"> 
+  
+  <Type Name="glm::vec&lt; 2, *, * &gt;">
+    <DisplayString>({x}, {y})</DisplayString>
+  </Type>
+  
+  <Type Name="glm::vec&lt; 3, *, * &gt;">
+    <DisplayString>({x}, {y}, {z})</DisplayString>
+  </Type>
+  
+  <Type Name="glm::vec&lt; 4, *, * &gt;">
+    <DisplayString>({x}, {y}, {z}, {w})</DisplayString>
+  </Type>
+    
+  <Type Name="glm::mat&lt;3, 3, *, *&gt;">
+    <DisplayString>{value}</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Size>3</Size>
+        <ValuePointer>value</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
     
   <Type Name="glm::mat&lt;4, 4, *, *&gt;">
     <DisplayString>{value}</DisplayString>
@@ -9,10 +31,6 @@
         <ValuePointer>value</ValuePointer>
       </ArrayItems>
     </Expand>
-  </Type>
-  
-  <Type Name="glm::vec&lt; 4, *, * &gt;">
-    <DisplayString>({x}, {y}, {z}, {w})</DisplayString>
   </Type>
 
 </AutoVisualizer> 

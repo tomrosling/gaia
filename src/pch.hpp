@@ -28,7 +28,7 @@ inline void DebugOut(const char* fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    int size = vsnprintf(nullptr, 0, fmt, args);
+    int size = 1 + vsnprintf(nullptr, 0, fmt, args);
     char* buf = (char*)alloca(size);
     vsnprintf(buf, size, fmt, args);
     ::OutputDebugStringA(buf);

@@ -1,12 +1,15 @@
 #include "Renderer.hpp"
 #include "Camera.hpp"
 #include "Terrain.hpp"
+#include "Input.hpp"
 
 using namespace gaia;
 
 Renderer g_renderer;
 Camera g_camera;
 Terrain g_terrain;
+Input g_input;
+bool g_trackingMouseLeave = false;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -19,6 +22,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
+    wc.hCursor = ::LoadCursor(nullptr, IDC_CROSS);
     RegisterClass(&wc);
 
     // Create the window.
@@ -72,7 +76,57 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         ::PostQuitMessage(0);
         return 0;
 
+    case WM_MOUSELEAVE:
+        g_input.LoseFocus();
+        g_trackingMouseLeave = false;
+        return 0;
+
+    case WM_MOUSEMOVE:
+    {
+        if (!g_trackingMouseLeave)
+        {
+            // Subscribe to WM_MOUSELEAVE.
+            TRACKMOUSEEVENT tme;
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            tme.dwHoverTime = HOVER_DEFAULT;
+            ::TrackMouseEvent(&tme);
+
+            g_trackingMouseLeave = true;
+        }
+
+        Vec2i pos(LOWORD(lParam), HIWORD(lParam));
+        g_input.MouseMove(pos);
+        return 0;
+    }
+
+    case WM_KEYDOWN:
+        if ('A' <= wParam && wParam <= 'Z')
+        {
+            g_input.SetCharKeyDown((char)wParam);
+        }
+
+        // TODO: Handle virtual keys better!
+        if (wParam == VK_SHIFT)
+        {
+            g_input.SetShiftDown(true);
+        }
+
+        break;
+
     case WM_KEYUP:
+        if ('A' <= wParam && wParam <= 'Z')
+        {
+            g_input.SetCharKeyUp((char)wParam);
+        }
+
+        // TODO: Handle virtual keys better!
+        if (wParam == VK_SHIFT)
+        {
+            g_input.SetShiftDown(false);
+        }
+
         if (wParam == VK_ESCAPE)
         {
             ::PostQuitMessage(0);
@@ -95,7 +149,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         g_renderer.BeginFrame();
 
         // Update the view matrix
-        Mat4f camMat = g_camera.Update(0.016f); // TODO: Actually measure time!
+        Mat4f camMat = g_camera.Update(g_input, 0.016f); // TODO: Actually measure time!
         Mat4f viewMat = math::affineInverse(camMat);
         g_renderer.SetViewMatrix(viewMat);
 
@@ -103,6 +157,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         g_renderer.RenderHelloTriangle();
 
         g_renderer.EndFrame();
+        g_input.EndFrame();
         return 0;
     }
     }

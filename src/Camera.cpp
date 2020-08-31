@@ -1,40 +1,34 @@
 #include "Camera.hpp"
+#include "Input.hpp"
 
 namespace gaia
 {
 
-Mat4f Camera::Update(float dt)
+Mat4f Camera::Update(const Input& input, float dt)
 {
-    // TODO: Separate input system
-    auto keyDown = [](int key)
+    if (input.IsShiftDown())
     {
-        return (::GetKeyState(key) & 0x8000) != 0;
-    };
-    
-    if (keyDown(VK_UP))
-        m_rotx -= m_rotSpeed * dt;
-    if (keyDown(VK_DOWN))
-        m_rotx += m_rotSpeed * dt;
-    if (keyDown(VK_LEFT))
-        m_rotY -= m_rotSpeed * dt;
-    if (keyDown(VK_RIGHT))
-        m_rotY += m_rotSpeed * dt;
+        Vec2f mouseDelta = (Vec2f)input.GetMouseDelta();
+        Vec2f swizzle(mouseDelta.y * m_rotSpeed.x, mouseDelta.x * m_rotSpeed.y); // TODO: Handedness
+        m_rot += dt * swizzle;
+        m_rot.x = std::clamp(m_rot.x, -0.5f * Pif, 0.5f * Pif);
+    }
 
     Vec3f translation(0.f, 0.f, 0.f);
-    if (keyDown('A'))
+    if (input.IsCharKeyDown('A'))
         translation.x -= m_linSpeed * dt;
-    if (keyDown('D'))
+    if (input.IsCharKeyDown('D'))
         translation.x += m_linSpeed * dt;
-    if (keyDown('Q'))
+    if (input.IsCharKeyDown('Q'))
         translation.y -= m_linSpeed * dt;
-    if (keyDown('E'))
+    if (input.IsCharKeyDown('E'))
         translation.y += m_linSpeed * dt;
-    if (keyDown('S'))
+    if (input.IsCharKeyDown('S'))
         translation.z -= m_linSpeed * dt;
-    if (keyDown('W'))
+    if (input.IsCharKeyDown('W'))
         translation.z += m_linSpeed * dt;
 
-    Mat3f rotMat = math::Mat3fMakeRotationY(m_rotY) * math::Mat3fMakeRotationX(m_rotx);
+    Mat3f rotMat = math::Mat3fMakeRotationY(m_rot.y) * math::Mat3fMakeRotationX(m_rot.x);
     m_pos += rotMat * translation;
     return math::Mat4fCompose(rotMat, m_pos);
 }
