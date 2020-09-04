@@ -127,10 +127,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             g_input.SetCharKeyDown((char)wParam);
         }
 
-        // TODO: Handle virtual keys better!
         if (wParam == VK_SHIFT)
         {
-            g_input.SetShiftDown(true);
+            g_input.SetSpecialKeyDown(SpecialKey::Shift);
         }
         return 0;
 
@@ -140,10 +139,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             g_input.SetCharKeyUp((char)wParam);
         }
 
-        // TODO: Handle virtual keys better!
         if (wParam == VK_SHIFT)
         {
-            g_input.SetShiftDown(false);
+            g_input.SetSpecialKeyUp(SpecialKey::Shift);
         }
 
         if (wParam == VK_ESCAPE)
