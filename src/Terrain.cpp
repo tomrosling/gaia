@@ -62,7 +62,7 @@ void Terrain::Build(Renderer& renderer)
 
             // Cheaply add a little bit of texture.
             // TODO: Remove and add normal map (and just diffuse textures).
-            height += 0.005f * (float)rand() / (float)RAND_MAX;
+            height += 0.01f * (float)rand() / (float)RAND_MAX;
             
             v.position.x = CellSize * ((float)x - 0.5f * (float)CellsX);
             v.position.y = height;
@@ -92,9 +92,10 @@ void Terrain::Build(Renderer& renderer)
                 if (z > 0)
                 {
                     // Below left
-                    // should this account for both triangles?
                     const Vec3f& down = vertexData[VertexAddress(x, z - 1)].position;
-                    normal += TriangleNormal(left, v.position, down);
+                    const Vec3f& downLeft = vertexData[VertexAddress(x - 1, z - 1)].position;
+                    normal += TriangleNormal(downLeft, left, v.position);
+                    normal += TriangleNormal(downLeft, v.position, down);
                 }
                 if (z < CellsZ)
                 {
@@ -110,7 +111,6 @@ void Terrain::Build(Renderer& renderer)
                 if (z > 0)
                 {
                     // Below right
-                    // should this account for both triangles?
                     const Vec3f& down = vertexData[VertexAddress(x, z - 1)].position;
                     normal += TriangleNormal(down, v.position, right);
                 }
@@ -118,7 +118,9 @@ void Terrain::Build(Renderer& renderer)
                 {
                     // Above right
                     const Vec3f& up = vertexData[VertexAddress(x, z + 1)].position;
-                    normal += TriangleNormal(v.position, up, right);
+                    const Vec3f& upRight = vertexData[VertexAddress(x + 1, z + 1)].position;
+                    normal += TriangleNormal(v.position, up, upRight);
+                    normal += TriangleNormal(v.position, upRight, right);
                 }
             }
 
