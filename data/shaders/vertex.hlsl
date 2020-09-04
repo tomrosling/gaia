@@ -1,6 +1,6 @@
 cbuffer Constants : register(b0)
 {
-    matrix MvpMatrix;
+    matrix ViewProjMat;
 };
  
 struct VertexPosColor
@@ -12,7 +12,7 @@ struct VertexPosColor
  
 struct VertexShaderOutput
 {
-    float3 modelpos : POSITION;
+    float3 worldPos : POSITION;
     float3 nrm : NORMAL;
     float4 col : COLOUR;
     float4 pos : SV_Position;
@@ -22,12 +22,10 @@ VertexShaderOutput main(VertexPosColor IN)
 {
     VertexShaderOutput OUT;
  
-    OUT.pos = mul(MvpMatrix, float4(IN.pos, 1.0));
+    OUT.pos = mul(ViewProjMat, float4(IN.pos, 1.0));
 
-    // TODO: Transform IN.nrm into world(?) space
-    OUT.modelpos = IN.pos;
+    OUT.worldPos = IN.pos;
     OUT.nrm = IN.nrm;
-
     OUT.col = IN.col;
  
     return OUT;

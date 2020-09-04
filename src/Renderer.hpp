@@ -32,16 +32,11 @@ public:
     bool Create(HWND hwnd);
     bool LoadCompiledShaders();
     bool HotloadShaders();
-    void CreateHelloTriangle();
-    void RenderHelloTriangle();
     void BeginFrame();
     void EndFrame();
     void WaitCurrentFrame();
 
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
-
-    // TODO: Something better than this.
-    void SetModelMatrix(const Mat4f& modelMat);
 
     ID3D12GraphicsCommandList2& GetDirectCommandList() { assert(m_directCommandList); return *m_directCommandList.Get(); }
     void BeginUploads();
@@ -66,6 +61,9 @@ private:
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[BackbufferCount];
     ComPtr<ID3D12CommandAllocator> m_copyCommandAllocator;
 
+    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12PipelineState> m_pipelineState;
+
     std::unique_ptr<CommandQueue> m_directCommandQueue;
     std::unique_ptr<CommandQueue> m_copyCommandQueue;
 
@@ -77,16 +75,8 @@ private:
     UINT m_rtvDescriptorSize = 0;
     bool m_created = false;
 
-    Mat4f m_viewMat = math::identity<Mat4f>();
-    Mat4f m_projMat = math::identity<Mat4f>();
-
-    // Hello Triangle resources:
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
-    ComPtr<ID3D12Resource> m_vertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView = {};
-    ComPtr<ID3D12Resource> m_indexBuffer;
-    D3D12_INDEX_BUFFER_VIEW m_indexBufferView = {};
+    Mat4f m_viewMat = Mat4fIdentity;
+    Mat4f m_projMat = Mat4fIdentity;
 };
 
 }

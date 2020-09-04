@@ -191,8 +191,6 @@ void Terrain::Build(Renderer& renderer)
 
 void Terrain::Render(Renderer& renderer)
 {
-    renderer.SetModelMatrix(Mat4fIdentity);
-
     ID3D12GraphicsCommandList2& commandList = renderer.GetDirectCommandList();
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 

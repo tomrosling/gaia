@@ -51,7 +51,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
         return 1;
 
     // By this point, assume we have enough driver support to go without further error checks...
-    g_renderer.CreateHelloTriangle();
     g_terrain.Build(g_renderer);
     
     ::ShowWindow(hwnd, SW_SHOW);
@@ -147,17 +146,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_PAINT:
     {
-        g_renderer.BeginFrame();
-
         // Update the view matrix
-        Mat4f camMat = g_camera.Update(g_input, 0.016f); // TODO: Actually measure time!
+        // TODO: Actually measure time (and put this all in a better place)!
+        Mat4f camMat = g_camera.Update(g_input, 0.016f);
         Mat4f viewMat = math::affineInverse(camMat);
         g_renderer.SetViewMatrix(viewMat);
 
+        g_renderer.BeginFrame();
         g_terrain.Render(g_renderer);
-        g_renderer.RenderHelloTriangle();
-
         g_renderer.EndFrame();
+
         g_input.EndFrame();
         return 0;
     }

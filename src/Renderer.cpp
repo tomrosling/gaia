@@ -307,50 +307,6 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
     return true;
 }
 
-void Renderer::CreateHelloTriangle()
-{
-    BeginUploads();
-
-    // Upload vertex buffer (must be done via an intermediate resource)
-    ComPtr<ID3D12Resource> intermediateVB;
-    CreateBuffer(m_vertexBuffer, intermediateVB, sizeof(VertexData), VertexData);
-
-    // Create vertex buffer view
-    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    m_vertexBufferView.SizeInBytes = sizeof(VertexData);
-    m_vertexBufferView.StrideInBytes = sizeof(Vertex);
-
-    // Upload index buffer
-    ComPtr<ID3D12Resource> intermediateIB;
-    CreateBuffer(m_indexBuffer, intermediateIB, sizeof(IndexData), IndexData);
-    
-    // Create index buffer view
-    m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
-    m_indexBufferView.Format = DXGI_FORMAT_R16_UINT;
-    m_indexBufferView.SizeInBytes = sizeof(IndexData);
-
-    EndUploads();
-}
-
-void Renderer::RenderHelloTriangle()
-{
-    // Update the model matrix
-    static float rx = 0.f;
-    static float ry = 0.f;
-    rx += 0.01f;
-    ry += 0.02f;
-    Mat4f modelMat = math::Mat4fCompose(
-        math::Mat3fMakeRotationY(ry) * math::Mat3fMakeRotationX(rx),
-        Vec3f(0.f, 1.f, 0.f));
-    SetModelMatrix(modelMat);
-
-    // Draw our lovely tetrahedron   
-    m_directCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    m_directCommandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-    m_directCommandList->IASetIndexBuffer(&m_indexBufferView);
-    m_directCommandList->DrawIndexedInstanced((UINT)std::size(IndexData), 1, 0, 0, 0);
-}
-
 void Renderer::BeginFrame()
 {
     ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_currentBuffer].Get();
@@ -382,6 +338,13 @@ void Renderer::BeginFrame()
     // Set PSO/shader state
     m_directCommandList->SetPipelineState(m_pipelineState.Get());
     m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+    // Set global uniforms
+    Mat4f viewProjMat = m_projMat * m_viewMat;
+    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Mat4f) / 4, &viewProjMat, offsetof(VertexConstantBuffer, mvpMatrix) / 4);
+
+    Vec3f camPos(math::affineInverse(m_viewMat)[3]);
+    m_directCommandList->SetGraphicsRoot32BitConstants(1, sizeof(Vec3f) / 4, &camPos, offsetof(PixelConstantBuffer, camPos) / 4);
 }
 
 void Renderer::EndFrame()
@@ -405,17 +368,6 @@ void Renderer::EndFrame()
 void Renderer::WaitCurrentFrame()
 {
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
-}
-
-void Renderer::SetModelMatrix(const Mat4f& modelMat)
-{
-    Mat4f mvpMat = m_projMat * m_viewMat * modelMat;
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Mat4f) / 4, &mvpMat, offsetof(VertexConstantBuffer, mvpMatrix) / 4);
-
-    // TODO: Work out a better place to set this.
-    // Global state like this should probably be in a separate constant buffer to the model matrix.
-    Vec3f camPos(math::affineInverse(m_viewMat)[3]);
-    m_directCommandList->SetGraphicsRoot32BitConstants(1, sizeof(Vec3f) / 4, &camPos, offsetof(PixelConstantBuffer, camPos) / 4);
 }
 
 void Renderer::BeginUploads()
