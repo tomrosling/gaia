@@ -7,12 +7,12 @@
 namespace gaia
 {
 
-const int CellsX = 254;
-const int CellsZ = 254;
+const int CellsX = 255;
+const int CellsZ = 255;
 const int NumVerts = (CellsX + 1) * (CellsZ + 1);
 const int NumIndices = 2 * 3 * CellsX * CellsZ;
 const float CellSize = 0.05f;
-static_assert(NumVerts <= USHRT_MAX, "Index format too small");
+static_assert(NumVerts <= (1 << 16), "Index format too small");
 
 static int VertexAddress(int x, int z) 
 {
@@ -28,6 +28,9 @@ static Vec3f TriangleNormal(const Vec3f& p0, const Vec3f& p1, const Vec3f& p2)
 
 void Terrain::Build(Renderer& renderer)
 {
+    // Note: rand() is not seeded so this is still deterministic, for now.
+    int seed = rand();
+
     auto vertexData = std::make_unique<Vertex[]>(NumVerts);
     auto indexData = std::make_unique<uint16_t[]>(NumIndices);
 
@@ -54,7 +57,7 @@ void Terrain::Build(Renderer& renderer)
             for (int i = 0; i < (int)std::size(Octaves); ++i)
             {
                 auto [frequency, amplitude] = Octaves[i];
-                height += amplitude * stb_perlin_noise3_seed((float)x * frequency, 0.f, (float)z * frequency, 0, 0, 0, i);
+                height += amplitude * stb_perlin_noise3_seed((float)x * frequency, 0.f, (float)z * frequency, 0, 0, 0, seed + i);
             }
 
             // Cheaply add a little bit of texture.

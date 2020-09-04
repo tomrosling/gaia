@@ -218,7 +218,7 @@ bool Renderer::HotloadShaders()
     }
 
     // Force a full CPU/GPU sync then recreate the PSO.
-    m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
+    WaitCurrentFrame();
 
     return CreateDefaultPipelineState(vertexShader.Get(), pixelShader.Get());
 }
@@ -402,6 +402,11 @@ void Renderer::EndFrame()
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer]);
 }
 
+void Renderer::WaitCurrentFrame()
+{
+    m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
+}
+
 void Renderer::SetModelMatrix(const Mat4f& modelMat)
 {
     Mat4f mvpMat = m_projMat * m_viewMat * modelMat;
@@ -415,9 +420,6 @@ void Renderer::SetModelMatrix(const Mat4f& modelMat)
 
 void Renderer::BeginUploads()
 {
-    // TODO: Generally unnecessary sync. Hack for recreating terrain (should double buffer instead).
-    m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
-
     m_copyCommandList->Reset(m_copyCommandAllocator.Get(), nullptr);
 }
 

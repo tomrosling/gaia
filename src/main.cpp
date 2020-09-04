@@ -140,6 +140,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         if (wParam == VK_F6)
         {
+            g_renderer.WaitCurrentFrame();
             g_terrain.Build(g_renderer);
         }
         break;

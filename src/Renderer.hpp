@@ -36,6 +36,7 @@ public:
     void RenderHelloTriangle();
     void BeginFrame();
     void EndFrame();
+    void WaitCurrentFrame();
 
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
 
