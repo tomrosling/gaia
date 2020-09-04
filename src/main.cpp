@@ -75,6 +75,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         ::PostQuitMessage(0);
         return 0;
 
+    case WM_GETMINMAXINFO:
+    {
+        // Define minimum window size.
+        MINMAXINFO* minMaxInfo = (MINMAXINFO*)lParam;
+        minMaxInfo->ptMinTrackSize.x = 128;
+        minMaxInfo->ptMinTrackSize.y = 128;
+        return 0;
+    }
+
+    case WM_SIZE:
+    {
+        int width = LOWORD(lParam);
+        int height = HIWORD(lParam);
+        if (!g_renderer.ResizeViewport(width, height))
+        {
+            DebugOut("Failed to resize window; quitting.\n");
+            ::PostQuitMessage(1);
+        }
+        return 0;
+    }
+
     case WM_MOUSELEAVE:
         g_input.LoseFocus();
         g_trackingMouseLeave = false;
@@ -111,8 +132,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             g_input.SetShiftDown(true);
         }
-
-        break;
+        return 0;
 
     case WM_KEYUP:
         if ('A' <= wParam && wParam <= 'Z')
@@ -142,7 +162,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             g_renderer.WaitCurrentFrame();
             g_terrain.Build(g_renderer);
         }
-        break;
+        return 0;
 
     case WM_PAINT:
     {

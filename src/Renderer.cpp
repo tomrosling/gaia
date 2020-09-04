@@ -28,12 +28,7 @@ static const uint16_t IndexData[] = {
     2, 3, 0
 };
 
-// TODO! This currently seems to be resampled to fit window size
-const uint32_t Width = 800;
-const uint32_t Height = 600;
-
 Renderer::Renderer()
-    : m_viewport(CD3DX12_VIEWPORT(0.f, 0.f, (float)Width, (float)Height))
 {
 }
 
@@ -90,8 +85,8 @@ bool Renderer::Create(HWND hwnd)
     ComPtr<IDXGISwapChain1> swapChain1;
     DXGI_SWAP_CHAIN_DESC1 swapchainDesc = {};
     swapchainDesc.BufferCount = BackbufferCount;
-    swapchainDesc.Width = Width;
-    swapchainDesc.Height = Height;
+    swapchainDesc.Width = 0;  // Leave these at zero for now; ResizeViewport() should be called before rendering.
+    swapchainDesc.Height = 0; //
     swapchainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     swapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -103,8 +98,6 @@ bool Renderer::Create(HWND hwnd)
     if (!SUCCEEDED(swapChain1->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&m_swapChain)))
         return false;
 
-    m_currentBuffer = m_swapChain->GetCurrentBackBufferIndex();
-
     // Create RTV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
     rtvHeapDesc.NumDescriptors = BackbufferCount;
@@ -115,17 +108,6 @@ bool Renderer::Create(HWND hwnd)
 
     m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-    // Create an RTV for each frame
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
-    for (int i = 0; i < BackbufferCount; ++i)
-    {
-        if (FAILED(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]))))
-            return false;
-
-        m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
-        rtvHandle.Offset(m_rtvDescriptorSize);
-    }
-
     // Create DSV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
     dsvHeapDesc.NumDescriptors = 1;
@@ -134,29 +116,10 @@ bool Renderer::Create(HWND hwnd)
     if (FAILED(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvDescHeap))))
         return false;
 
-    // Create depth buffer
-    D3D12_CLEAR_VALUE depthClear = {};
-    depthClear.Format = DXGI_FORMAT_D32_FLOAT;
-    depthClear.DepthStencil = { 1.f, 0 };
-    CD3DX12_HEAP_PROPERTIES depthHeapProperties(D3D12_HEAP_TYPE_DEFAULT);
-    CD3DX12_RESOURCE_DESC depthResourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(
-        DXGI_FORMAT_D32_FLOAT, Width, Height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
-    if (FAILED(m_device->CreateCommittedResource(&depthHeapProperties, D3D12_HEAP_FLAG_NONE, &depthResourceDesc, 
-                                                 D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClear, IID_PPV_ARGS(&m_depthBuffer))))
-        return false;
-
-    // Create DSV
-    D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
-    dsv.Format = DXGI_FORMAT_D32_FLOAT;
-    dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-    dsv.Texture2D.MipSlice = 0;
-    dsv.Flags = D3D12_DSV_FLAG_NONE;
-    m_device->CreateDepthStencilView(m_depthBuffer.Get(), &dsv, m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart());
-
     // Create command allocators
-    for (int i = 0; i < BackbufferCount; ++i)
+    for (auto& allocator : m_commandAllocators)
     {
-        if (FAILED(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i]))))
+        if (FAILED(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))))
             return false;
     }
 
@@ -172,10 +135,64 @@ bool Renderer::Create(HWND hwnd)
         return false;
     m_copyCommandList->Close();
 
-    // Create projection matrix.
-    m_projMat = math::perspectiveFovLH(0.25f * Pif, (float)Width, (float)Height, 0.01f, 1000.f);
+    // NOTE: We don't actually create the render and depth targets here, assuming ResizeViewport will be called with an appropriate size.
 
     m_created = true;
+    return true;
+}
+
+bool Renderer::ResizeViewport(int width, int height)
+{
+    assert(width > 0 && height > 0);
+
+    // Tear down existing render targets.
+    m_directCommandQueue->Flush();
+    m_depthBuffer = nullptr;
+    for (auto& rt : m_renderTargets)
+    {
+        rt = nullptr;
+    }
+
+    // Recreate the swap chain render targets.
+    DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
+    m_swapChain->GetDesc(&swapChainDesc);
+    if (FAILED(m_swapChain->ResizeBuffers(BackbufferCount, width, height, swapChainDesc.BufferDesc.Format, swapChainDesc.Flags)))
+        return false;
+
+    m_currentBuffer = m_swapChain->GetCurrentBackBufferIndex();
+
+    // Create an RTV for each frame.
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
+    for (int i = 0; i < BackbufferCount; ++i)
+    {
+        if (FAILED(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]))))
+            return false;
+
+        m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
+        rtvHandle.Offset(m_rtvDescriptorSize);
+    }
+
+    // Create depth buffer.
+    D3D12_CLEAR_VALUE depthClear = {};
+    depthClear.Format = DXGI_FORMAT_D32_FLOAT;
+    depthClear.DepthStencil = { 1.f, 0 };
+    CD3DX12_HEAP_PROPERTIES depthHeapProperties(D3D12_HEAP_TYPE_DEFAULT);
+    CD3DX12_RESOURCE_DESC depthResourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+        DXGI_FORMAT_D32_FLOAT, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    if (FAILED(m_device->CreateCommittedResource(&depthHeapProperties, D3D12_HEAP_FLAG_NONE, &depthResourceDesc,
+                                                 D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClear, IID_PPV_ARGS(&m_depthBuffer))))
+        return false;
+
+    // Create DSV.
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
+    dsv.Format = DXGI_FORMAT_D32_FLOAT;
+    dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv.Texture2D.MipSlice = 0;
+    dsv.Flags = D3D12_DSV_FLAG_NONE;
+    m_device->CreateDepthStencilView(m_depthBuffer.Get(), &dsv, m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart());
+
+    m_viewport = CD3DX12_VIEWPORT(0.f, 0.f, (float)width, (float)height);
+    m_projMat = math::perspectiveFovLH(0.25f * Pif, m_viewport.Width, m_viewport.Height, 0.01f, 1000.f);
     return true;
 }
 

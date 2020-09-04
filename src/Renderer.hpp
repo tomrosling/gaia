@@ -30,6 +30,7 @@ public:
     ~Renderer();
 
     bool Create(HWND hwnd);
+    bool ResizeViewport(int width, int height);
     bool LoadCompiledShaders();
     bool HotloadShaders();
     void BeginFrame();
