@@ -389,6 +389,7 @@ void Renderer::WaitCurrentFrame()
 
 void Renderer::BeginUploads()
 {
+    m_copyCommandAllocator->Reset();
     m_copyCommandList->Reset(m_copyCommandAllocator.Get(), nullptr);
 }
 
