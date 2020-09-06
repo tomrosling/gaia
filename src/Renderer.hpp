@@ -40,7 +40,9 @@ public:
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
 
     ID3D12GraphicsCommandList2& GetDirectCommandList() { assert(m_directCommandList); return *m_directCommandList.Get(); }
+    ID3D12GraphicsCommandList2& GetCopyCommandList() { assert(m_directCommandList); return *m_copyCommandList.Get(); }
     void BeginUploads();
+    void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
     void EndUploads();
 

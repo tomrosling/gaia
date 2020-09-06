@@ -31,28 +31,6 @@ static int TileIndex(int x, int z)
     return (NumTilesX) * z + x;
 }
 
-static Vec3f TriangleNormal(const Vec3f& p0, const Vec3f& p1, const Vec3f& p2)
-{
-    return math::normalize(math::cross(p1 - p0, p2 - p0));
-}
-
-// TODO: We could just write directly to the intermediate buffer when mapped.
-static void CreateVertexBuffer(Renderer& renderer, Terrain::VertexBuffer& vb, int vertexCount, const void* data)
-{
-    renderer.CreateBuffer(vb.buffer, vb.intermediateBuffer, vertexCount * sizeof(Vertex), data);
-    vb.view.BufferLocation = vb.buffer->GetGPUVirtualAddress();
-    vb.view.SizeInBytes = vertexCount * sizeof(Vertex);
-    vb.view.StrideInBytes = sizeof(Vertex);
-}
-
-static void CreateIndexBuffer(Renderer& renderer, Terrain::IndexBuffer& ib, int indexCount, const void* data)
-{
-    renderer.CreateBuffer(ib.buffer, ib.intermediateBuffer, indexCount * sizeof(uint16_t), data);
-    ib.view.BufferLocation = ib.buffer->GetGPUVirtualAddress();
-    ib.view.Format = DXGI_FORMAT_R16_UINT;
-    ib.view.SizeInBytes = indexCount * sizeof(uint16_t);
-}
-
 
 void Terrain::Build(Renderer& renderer)
 {
@@ -78,7 +56,7 @@ void Terrain::Build(Renderer& renderer)
 
 void Terrain::Render(Renderer& renderer)
 {
-    ID3D12GraphicsCommandList2& commandList = renderer.GetDirectCommandList();
+    ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // Render the terrain itself.
@@ -97,8 +75,16 @@ void Terrain::Render(Renderer& renderer)
 
 void Terrain::BuildIndexBuffer(Renderer& renderer)
 {
+    size_t dataSize = IndicesPerTile * sizeof(uint16_t);
+    renderer.CreateBuffer(m_indexBuffer.buffer, m_indexBuffer.intermediateBuffer, dataSize);
+    m_indexBuffer.view.BufferLocation = m_indexBuffer.buffer->GetGPUVirtualAddress();
+    m_indexBuffer.view.Format = DXGI_FORMAT_R16_UINT;
+    m_indexBuffer.view.SizeInBytes = (UINT)dataSize;
+
+    uint16_t* indexData = nullptr;
+    m_indexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&indexData);
+
     // TODO: Consider triangle strips or other topology?
-    auto indexData = std::make_unique<uint16_t[]>(IndicesPerTile);
     for (int z = 0; z < CellsPerTileZ; ++z)
     {
         for (int x = 0; x < CellsPerTileX; ++x)
@@ -113,7 +99,10 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
         }
     }
 
-    CreateIndexBuffer(renderer, m_indexBuffer, IndicesPerTile, indexData.get());
+    m_indexBuffer.intermediateBuffer->Unmap(0, nullptr);
+
+    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+    commandList.CopyBufferRegion(m_indexBuffer.buffer.Get(), 0, m_indexBuffer.intermediateBuffer.Get(), 0, dataSize);
 }
 
 void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ, int seed)
@@ -121,7 +110,15 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ, int seed)
     assert(0 <= tileX && tileX < NumTilesX);
     assert(0 <= tileZ && tileZ < NumTilesZ);
 
-    auto vertexData = std::make_unique<Vertex[]>(VertsPerTile);
+    size_t dataSize = VertsPerTile * sizeof(Vertex);
+    VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
+    renderer.CreateBuffer(vb.buffer, vb.intermediateBuffer, dataSize);
+    vb.view.BufferLocation = vb.buffer->GetGPUVirtualAddress();
+    vb.view.SizeInBytes = (UINT)dataSize;
+    vb.view.StrideInBytes = sizeof(Vertex);
+    
+    Vertex* vertexData = nullptr;
+    vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
 
     // Initialise pos, col / generate heights
     for (int z = 0; z <= CellsPerTileZ; ++z)
@@ -165,8 +162,10 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ, int seed)
         }
     }
 
-    int tileIndex = TileIndex(tileX, tileZ);
-    CreateVertexBuffer(renderer, m_tileVertexBuffers[tileIndex], VertsPerTile, vertexData.get());
+    vb.intermediateBuffer->Unmap(0, nullptr);
+
+    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+    commandList.CopyBufferRegion(vb.buffer.Get(), 0, vb.intermediateBuffer.Get(), 0, dataSize);
 }
 
 void Terrain::BuildWater(Renderer& renderer)
@@ -185,8 +184,15 @@ void Terrain::BuildWater(Renderer& renderer)
         0, 2, 3
     };
 
-    CreateVertexBuffer(renderer, m_waterVertexBuffer, (int)std::size(WaterVerts), WaterVerts);
-    CreateIndexBuffer(renderer, m_waterIndexBuffer, (int)std::size(WaterIndices), WaterIndices);
+    renderer.CreateBuffer(m_waterVertexBuffer.buffer, m_waterVertexBuffer.intermediateBuffer, sizeof(WaterVerts), WaterVerts);
+    m_waterVertexBuffer.view.BufferLocation = m_waterVertexBuffer.buffer->GetGPUVirtualAddress();
+    m_waterVertexBuffer.view.SizeInBytes = sizeof(WaterVerts);
+    m_waterVertexBuffer.view.StrideInBytes = sizeof(Vertex);
+
+    renderer.CreateBuffer(m_waterIndexBuffer.buffer, m_waterIndexBuffer.intermediateBuffer, sizeof(WaterIndices), WaterIndices);
+    m_waterIndexBuffer.view.BufferLocation = m_waterIndexBuffer.buffer->GetGPUVirtualAddress();
+    m_waterIndexBuffer.view.Format = DXGI_FORMAT_R16_UINT;
+    m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);
 }
 
 Vec3f Terrain::GeneratePos(int globalX, int globalZ, int seed)

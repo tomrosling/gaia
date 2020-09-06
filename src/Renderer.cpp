@@ -393,7 +393,7 @@ void Renderer::BeginUploads()
     m_copyCommandList->Reset(m_copyCommandAllocator.Get(), nullptr);
 }
 
-void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
+void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size)
 {
     // Create destination buffer
     CD3DX12_HEAP_PROPERTIES defaultHeapProps(D3D12_HEAP_TYPE_DEFAULT);
@@ -406,7 +406,13 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
     CD3DX12_HEAP_PROPERTIES uploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
     m_device->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&intermediateBuffer));
+}
 
+void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
+{
+    CreateBuffer(bufferOut, intermediateBuffer, size);
+
+    // Upload initial data.
     D3D12_SUBRESOURCE_DATA subresourceData = {};
     subresourceData.pData = data;
     subresourceData.RowPitch = size;
