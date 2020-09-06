@@ -31,6 +31,17 @@ static int TileIndex(int x, int z)
     return (NumTilesX) * z + x;
 }
 
+static Vec2i WorldPosToTile(Vec2f worldPosXZ)
+{
+    // Account for the world being centred.
+    // Probably remove this in future.
+    worldPosXZ.x += 0.5f * CellSize * (float)(CellsPerTileX * NumTilesX);
+    worldPosXZ.y += 0.5f * CellSize * (float)(CellsPerTileZ * NumTilesZ);
+
+    return Vec2i((int)floorf(worldPosXZ.x / (CellSize * (float)CellsPerTileX)),
+                 (int)floorf(worldPosXZ.y / (CellSize * (float)CellsPerTileZ)));
+}
+
 
 void Terrain::Build(Renderer& renderer)
 {
@@ -71,6 +82,60 @@ void Terrain::Render(Renderer& renderer)
     commandList.IASetVertexBuffers(0, 1, &m_waterVertexBuffer.view);
     commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
     commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16_t), 1, 0, 0, 0);
+}
+
+void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
+{
+    // Find all tiles touched by this transform.
+    Vec2f minPosXZ = posXZ - Vec2f(radius, radius);
+    Vec2f maxPosXZ = posXZ + Vec2f(radius, radius);
+    Vec2i minTile = WorldPosToTile(minPosXZ);
+    Vec2i maxTile = WorldPosToTile(maxPosXZ);
+
+    // Skip if outside the world.
+    if (minTile.x >= NumTilesX || minTile.y >= NumTilesZ)
+        return;
+    if (maxTile.x < 0 || maxTile.y < 0)
+        return;
+
+    minTile.x = std::clamp(minTile.x, 0, NumTilesX);
+    minTile.y = std::clamp(minTile.y, 0, NumTilesZ);
+    maxTile.x = std::clamp(maxTile.x, 0, NumTilesX);
+    maxTile.y = std::clamp(maxTile.y, 0, NumTilesZ);
+
+    // TODO: Remove this wait by double buffering while uploading.
+    renderer.WaitCurrentFrame();
+    renderer.BeginUploads();
+    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+
+    for (int tileZ = minTile.y; tileZ <= maxTile.y; ++tileZ)
+    {
+        for (int tileX = minTile.x; tileX <= maxTile.x; ++tileX)
+        {
+            VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
+            Vertex* vertexData = nullptr;
+            vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
+            assert(vertexData);
+
+            // TODO: Only iterate the vertices that could be touched.
+            for (int z = 0; z <= CellsPerTileZ; ++z)
+            {
+                for (int x = 0; x <= CellsPerTileX; ++x)
+                {
+                    Vertex& v = vertexData[VertexIndex(x, z)];
+                    float distSq = math::length2(Vec2f(v.position.x, v.position.z) - posXZ);
+                    v.position.y += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
+                }
+            }
+
+            // TODO: Update normals and colours
+
+            vb.intermediateBuffer->Unmap(0, nullptr);
+            commandList.CopyBufferRegion(vb.buffer.Get(), 0, vb.intermediateBuffer.Get(), 0, VertsPerTile * sizeof(Vertex));
+        }
+    }
+
+    renderer.EndUploads();
 }
 
 void Terrain::BuildIndexBuffer(Renderer& renderer)
