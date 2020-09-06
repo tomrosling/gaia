@@ -155,21 +155,13 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ, int seed)
 
             // Make sure seams have consistent normals by resampling the Perlin noise when the neighbouring vertices don't exist.
             // We could avoid this by adding an unrendered border to each tile, and just sampling its height.
+            // Could also probably do this on the GPU.
             Vec3f left = (x > 0) ? vertexData[VertexIndex(x - 1, z)].position : GeneratePos(globalX - 1, globalZ, seed);
             Vec3f down = (z > 0) ? vertexData[VertexIndex(x, z - 1)].position : GeneratePos(globalX, globalZ - 1, seed);
             Vec3f right = (x < CellsPerTileX) ? vertexData[VertexIndex(x + 1, z)].position : GeneratePos(globalX + 1, globalZ, seed);
             Vec3f up    = (z < CellsPerTileZ) ? vertexData[VertexIndex(x, z + 1)].position : GeneratePos(globalX, globalZ + 1, seed);
-            Vec3f downLeft = (x > 0 && z > 0) ? vertexData[VertexIndex(x - 1, z - 1)].position : GeneratePos(globalX - 1, globalZ - 1, seed);
-            Vec3f upRight = (x < CellsPerTileX && z < CellsPerTileZ) ? vertexData[VertexIndex(x + 1, z + 1)].position : GeneratePos(globalX + 1, globalZ + 1, seed);
 
-            Vec3f normal = Vec3fZero;
-            normal += TriangleNormal(downLeft, left, v.position);
-            normal += TriangleNormal(downLeft, v.position, down);
-            normal += TriangleNormal(left, up, v.position);
-            normal += TriangleNormal(down, v.position, right);
-            normal += TriangleNormal(v.position, up, upRight);
-            normal += TriangleNormal(v.position, upRight, right);
-            v.normal = normal / 6.f;
+            v.normal = math::normalize(math::cross(up - down, right - left));
         }
     }
 
