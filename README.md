@@ -1,6 +1,7 @@
-# Gaia Rendering/Terrain Engine
-_Gaia Ain't Inarguably An Engine_
+# Gaia Terrain Engine
 
-Or _Gaia ain't it's (own) acryonym_, if you prefer.
+Procedural terrain generation and rendering, using DirectX 12.
 
-Toy project.
+Build using CMake; requires Visual Studio 2017 or later.
+
+Toy/learning project (at a very early stage).
