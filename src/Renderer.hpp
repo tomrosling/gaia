@@ -20,7 +20,7 @@ struct Vertex
 {
     Vec3f position;
     Vec3f normal;
-    uint8_t colour[4];
+    Vec4u8 colour;
 };
 
 class Renderer

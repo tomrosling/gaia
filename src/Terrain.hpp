@@ -29,12 +29,15 @@ public:
 
 private:
     void BuildIndexBuffer(Renderer& renderer);
-    void BuildTile(Renderer& renderer, int tileX, int tileZ, int seed);
+    void BuildTile(Renderer& renderer, int tileX, int tileZ);
     void BuildWater(Renderer& renderer);
-    Vec3f GeneratePos(int globalX, int globalZ, int seed);
+    Vec3f GeneratePos(int globalX, int globalZ);
+    Vec4u8 GenerateCol(float height);
+    Vec3f GenerateNormal(const Vertex* vertexData, Vec2i vertexCoords, Vec2i tileCoords);
 
     std::vector<VertexBuffer> m_tileVertexBuffers;
     IndexBuffer m_indexBuffer; // Indices are the same for each tile.
+    int m_seed = 0;
 
     VertexBuffer m_waterVertexBuffer;
     IndexBuffer m_waterIndexBuffer;

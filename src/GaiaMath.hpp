@@ -18,6 +18,10 @@ using Vec2i = glm::i32vec2;
 using Vec3i = glm::i32vec3;
 using Vec4i = glm::i32vec4;
 
+using Vec2u8 = glm::u8vec2;
+using Vec3u8 = glm::u8vec3;
+using Vec4u8 = glm::u8vec4;
+
 // Constants:
 static constexpr float Pif = glm::pi<float>();
 
@@ -61,7 +65,7 @@ template <typename T>
 inline T Lerp(T a, T b, float t)
 {
     assert(0.f <= t && t <= 1.f);
-    return a + (T)(t * (float)(b - a));
+    return a + (T)(t * (b - a));
 }
 
 inline Vec3f Mat4fTransformVec3f(const Mat4f& m, const Vec3f& v)

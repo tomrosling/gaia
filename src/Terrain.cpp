@@ -48,14 +48,14 @@ void Terrain::Build(Renderer& renderer)
     renderer.BeginUploads();
 
     // Note: rand() is not seeded so this is still deterministic, for now.
-    int seed = rand();
+    m_seed = rand();
 
     m_tileVertexBuffers.resize(NumTilesX * NumTilesZ);
     for (int z = 0; z < NumTilesZ; ++z)
     {
         for (int x = 0; x < NumTilesX; ++x)
         {
-            BuildTile(renderer, x, z, seed);
+            BuildTile(renderer, x, z);
         }
     }
 
@@ -118,6 +118,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             assert(vertexData);
 
             // TODO: Only iterate the vertices that could be touched.
+            // Update positions and colours.
             for (int z = 0; z <= CellsPerTileZ; ++z)
             {
                 for (int x = 0; x <= CellsPerTileX; ++x)
@@ -125,10 +126,19 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
                     Vertex& v = vertexData[VertexIndex(x, z)];
                     float distSq = math::length2(Vec2f(v.position.x, v.position.z) - posXZ);
                     v.position.y += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
+                    v.colour = GenerateCol(v.position.y);
                 }
             }
 
-            // TODO: Update normals and colours
+            // Update normals after all positions have been updated.
+            for (int z = 0; z <= CellsPerTileZ; ++z)
+            {
+                for (int x = 0; x <= CellsPerTileX; ++x)
+                {
+                    Vertex& v = vertexData[VertexIndex(x, z)];
+                    v.normal = GenerateNormal(vertexData, Vec2i(x, z), Vec2i(tileX, tileZ));
+                }
+            }
 
             vb.intermediateBuffer->Unmap(0, nullptr);
             commandList.CopyBufferRegion(vb.buffer.Get(), 0, vb.intermediateBuffer.Get(), 0, VertsPerTile * sizeof(Vertex));
@@ -170,7 +180,7 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
     commandList.CopyBufferRegion(m_indexBuffer.buffer.Get(), 0, m_indexBuffer.intermediateBuffer.Get(), 0, dataSize);
 }
 
-void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ, int seed)
+void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
 {
     assert(0 <= tileX && tileX < NumTilesX);
     assert(0 <= tileZ && tileZ < NumTilesZ);
@@ -194,15 +204,11 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ, int seed)
             int globalZ = z + tileZ * CellsPerTileZ;
 
             Vertex& v = vertexData[VertexIndex(x, z)];
-            v.position = GeneratePos(globalX, globalZ, seed);
+            v.position = GeneratePos(globalX, globalZ);
 
             // Leave v.normal uninitialised until below...
 
-            float t = std::clamp(v.position.y - 0.8f, 0.f, 1.f);
-            v.colour[0] = math::Lerp(0x00, 0xff, t);
-            v.colour[1] = math::Lerp(0x80, 0xff, t);
-            v.colour[2] = math::Lerp(0x00, 0xff, t);
-            v.colour[3] = 0xff;
+            v.colour = GenerateCol(v.position.y);
         }
     }
 
@@ -212,18 +218,7 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ, int seed)
         for (int x = 0; x <= CellsPerTileX; ++x)
         {
             Vertex& v = vertexData[VertexIndex(x, z)];
-            int globalX = x + tileX * CellsPerTileX;
-            int globalZ = z + tileZ * CellsPerTileZ;
-
-            // Make sure seams have consistent normals by resampling the Perlin noise when the neighbouring vertices don't exist.
-            // We could avoid this by adding an unrendered border to each tile, and just sampling its height.
-            // Could also probably do this on the GPU.
-            Vec3f left = (x > 0) ? vertexData[VertexIndex(x - 1, z)].position : GeneratePos(globalX - 1, globalZ, seed);
-            Vec3f down = (z > 0) ? vertexData[VertexIndex(x, z - 1)].position : GeneratePos(globalX, globalZ - 1, seed);
-            Vec3f right = (x < CellsPerTileX) ? vertexData[VertexIndex(x + 1, z)].position : GeneratePos(globalX + 1, globalZ, seed);
-            Vec3f up    = (z < CellsPerTileZ) ? vertexData[VertexIndex(x, z + 1)].position : GeneratePos(globalX, globalZ + 1, seed);
-
-            v.normal = math::normalize(math::cross(up - down, right - left));
+            v.normal = GenerateNormal(vertexData, Vec2i(x, z), Vec2i(tileX, tileZ));
         }
     }
 
@@ -260,7 +255,7 @@ void Terrain::BuildWater(Renderer& renderer)
     m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);
 }
 
-Vec3f Terrain::GeneratePos(int globalX, int globalZ, int seed)
+Vec3f Terrain::GeneratePos(int globalX, int globalZ)
 {
     const struct
     {
@@ -280,7 +275,7 @@ Vec3f Terrain::GeneratePos(int globalX, int globalZ, int seed)
     for (int i = 0; i < (int)std::size(Octaves); ++i)
     {
         auto [frequency, amplitude] = Octaves[i];
-        height += amplitude * stb_perlin_noise3_seed((float)globalX * frequency, 0.f, (float)globalZ * frequency, 0, 0, 0, seed + i);
+        height += amplitude * stb_perlin_noise3_seed((float)globalX * frequency, 0.f, (float)globalZ * frequency, 0, 0, 0, m_seed + i);
     }
 
     return Vec3f(
@@ -288,6 +283,33 @@ Vec3f Terrain::GeneratePos(int globalX, int globalZ, int seed)
         height,
         CellSize * ((float)globalZ - 0.5f * (float)(CellsPerTileZ * NumTilesZ))
     );
+}
+
+Vec4u8 Terrain::GenerateCol(float height)
+{
+    float t = std::clamp(height - 0.8f, 0.f, 1.f);
+    Vec4f colf = math::Lerp(Vec4f(0.f, 0.5f, 0.f, 1.f), Vec4f(1.f, 1.f, 1.f, 1.f), t);
+    return (Vec4u8)(colf * 255.f);
+}
+
+Vec3f Terrain::GenerateNormal(const Vertex* vertexData, Vec2i vertexCoords, Vec2i tileCoords)
+{
+    int x = vertexCoords.x;
+    int z = vertexCoords.y;
+    int globalX = x + tileCoords.x * CellsPerTileX;
+    int globalZ = z + tileCoords.y * CellsPerTileZ;
+
+    // Make sure seams have consistent normals by resampling the Perlin noise when the neighbouring vertices don't exist.
+    // We could avoid this by adding an unrendered border to each tile, and just sampling its height.
+    // Could also probably do this on the GPU.
+    // TODO: This is no longer valid now the terrain can be modified.
+    // TODO: Optimise access. Probably accessing other z rows is screwing up performance.
+    Vec3f left = (x > 0) ? vertexData[VertexIndex(x - 1, z)].position : GeneratePos(globalX - 1, globalZ);
+    Vec3f down = (z > 0) ? vertexData[VertexIndex(x, z - 1)].position : GeneratePos(globalX, globalZ - 1);
+    Vec3f right = (x < CellsPerTileX) ? vertexData[VertexIndex(x + 1, z)].position : GeneratePos(globalX + 1, globalZ);
+    Vec3f up = (z < CellsPerTileZ) ? vertexData[VertexIndex(x, z + 1)].position : GeneratePos(globalX, globalZ + 1);
+
+    return math::normalize(math::cross(up - down, right - left));
 }
 
 }
