@@ -11,9 +11,10 @@ class Terrain
 public:
     struct VertexBuffer
     {
-        ComPtr<ID3D12Resource> buffer;
+        ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
+        D3D12_VERTEX_BUFFER_VIEW views[2] = {};
         ComPtr<ID3D12Resource> intermediateBuffer;
-        D3D12_VERTEX_BUFFER_VIEW view = {};
+        int currentBuffer = 0;
     };
 
     struct IndexBuffer
@@ -37,9 +38,12 @@ private:
 
     std::vector<VertexBuffer> m_tileVertexBuffers;
     IndexBuffer m_indexBuffer; // Indices are the same for each tile.
+    uint64_t m_uploadFenceVal = 0;
     int m_seed = 0;
 
-    VertexBuffer m_waterVertexBuffer;
+    ComPtr<ID3D12Resource> m_waterVertexBuffer;
+    ComPtr<ID3D12Resource> m_waterIntermediateVertexBuffer;
+    D3D12_VERTEX_BUFFER_VIEW m_waterVertexBufferView;
     IndexBuffer m_waterIndexBuffer;
 };
 

@@ -406,9 +406,13 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
     ::UpdateSubresources(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
 }
 
-void Renderer::EndUploads()
+UINT64 Renderer::EndUploads()
 {
-    UINT64 fenceVal = m_copyCommandQueue->Execute(m_copyCommandList.Get());
+    return m_copyCommandQueue->Execute(m_copyCommandList.Get());
+}
+
+void Renderer::WaitUploads(UINT64 fenceVal)
+{
     m_copyCommandQueue->WaitFence(fenceVal);
 }
 

@@ -79,30 +79,40 @@ void Terrain::Build(Renderer& renderer)
     BuildIndexBuffer(renderer);
     BuildWater(renderer);
 
-    renderer.EndUploads();
+    m_uploadFenceVal = renderer.EndUploads();
 }
 
 void Terrain::Render(Renderer& renderer)
 {
+    // Wait for any pending uploads.
+    if (m_uploadFenceVal != 0)
+    {
+        renderer.WaitUploads(m_uploadFenceVal);
+        m_uploadFenceVal = 0;
+    }
+
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // Render the terrain itself.
     for (const VertexBuffer& vertexBuffer : m_tileVertexBuffers)
     {
-        commandList.IASetVertexBuffers(0, 1, &vertexBuffer.view);
+        commandList.IASetVertexBuffers(0, 1, &vertexBuffer.views[vertexBuffer.currentBuffer]);
         commandList.IASetIndexBuffer(&m_indexBuffer.view);
         commandList.DrawIndexedInstanced(IndicesPerTile, 1, 0, 0, 0);
     }
 
     // Render "water".
-    commandList.IASetVertexBuffers(0, 1, &m_waterVertexBuffer.view);
+    commandList.IASetVertexBuffers(0, 1, &m_waterVertexBufferView);
     commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
     commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16_t), 1, 0, 0, 0);
 }
 
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
 {
+    // Check buffers not already being uploaded.
+    assert(m_uploadFenceVal == 0);
+
     // Find all tiles touched by this transform.
     Vec2f minPosXZ = posXZ - Vec2f(radius, radius);
     Vec2f maxPosXZ = posXZ + Vec2f(radius, radius);
@@ -120,8 +130,6 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     maxTile.x = std::clamp(maxTile.x, 0, NumTilesX - 1);
     maxTile.y = std::clamp(maxTile.y, 0, NumTilesZ - 1);
 
-    // TODO: Remove this wait by double buffering while uploading.
-    renderer.WaitCurrentFrame();
     renderer.BeginUploads();
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
 
@@ -162,11 +170,13 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             }
 
             vb.intermediateBuffer->Unmap(0, nullptr);
-            commandList.CopyBufferRegion(vb.buffer.Get(), 0, vb.intermediateBuffer.Get(), 0, VertsPerTile * sizeof(Vertex));
+
+            vb.currentBuffer ^= 1;
+            commandList.CopyBufferRegion(vb.gpuDoubleBuffer[vb.currentBuffer].Get(), 0, vb.intermediateBuffer.Get(), 0, VertsPerTile * sizeof(Vertex));
         }
     }
 
-    renderer.EndUploads();
+    m_uploadFenceVal = renderer.EndUploads();
 }
 
 void Terrain::BuildIndexBuffer(Renderer& renderer)
@@ -208,10 +218,13 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
 
     size_t dataSize = VertsPerTile * sizeof(Vertex);
     VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
-    renderer.CreateBuffer(vb.buffer, vb.intermediateBuffer, dataSize);
-    vb.view.BufferLocation = vb.buffer->GetGPUVirtualAddress();
-    vb.view.SizeInBytes = (UINT)dataSize;
-    vb.view.StrideInBytes = sizeof(Vertex);
+    for (int i = 0; i < 2; ++i)
+    {
+        renderer.CreateBuffer(vb.gpuDoubleBuffer[i], vb.intermediateBuffer, dataSize);
+        vb.views[i].BufferLocation = vb.gpuDoubleBuffer[i]->GetGPUVirtualAddress();
+        vb.views[i].SizeInBytes = (UINT)dataSize;
+        vb.views[i].StrideInBytes = sizeof(Vertex);
+    }
     
     Vertex* vertexData = nullptr;
     vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
@@ -246,7 +259,7 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     vb.intermediateBuffer->Unmap(0, nullptr);
 
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    commandList.CopyBufferRegion(vb.buffer.Get(), 0, vb.intermediateBuffer.Get(), 0, dataSize);
+    commandList.CopyBufferRegion(vb.gpuDoubleBuffer[vb.currentBuffer].Get(), 0, vb.intermediateBuffer.Get(), 0, dataSize);
 }
 
 void Terrain::BuildWater(Renderer& renderer)
@@ -265,10 +278,10 @@ void Terrain::BuildWater(Renderer& renderer)
         0, 2, 3
     };
 
-    renderer.CreateBuffer(m_waterVertexBuffer.buffer, m_waterVertexBuffer.intermediateBuffer, sizeof(WaterVerts), WaterVerts);
-    m_waterVertexBuffer.view.BufferLocation = m_waterVertexBuffer.buffer->GetGPUVirtualAddress();
-    m_waterVertexBuffer.view.SizeInBytes = sizeof(WaterVerts);
-    m_waterVertexBuffer.view.StrideInBytes = sizeof(Vertex);
+    renderer.CreateBuffer(m_waterVertexBuffer, m_waterIntermediateVertexBuffer, sizeof(WaterVerts), WaterVerts);
+    m_waterVertexBufferView.BufferLocation = m_waterVertexBuffer->GetGPUVirtualAddress();
+    m_waterVertexBufferView.SizeInBytes = sizeof(WaterVerts);
+    m_waterVertexBufferView.StrideInBytes = sizeof(Vertex);
 
     renderer.CreateBuffer(m_waterIndexBuffer.buffer, m_waterIndexBuffer.intermediateBuffer, sizeof(WaterIndices), WaterIndices);
     m_waterIndexBuffer.view.BufferLocation = m_waterIndexBuffer.buffer->GetGPUVirtualAddress();
