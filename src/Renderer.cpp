@@ -14,20 +14,6 @@ struct PixelConstantBuffer
     Vec3f camPos;
 };
 
-static const Vertex VertexData[] = {
-    { { -0.5f, -0.5f, -0.5f }, { -0.577f, -0.577f, -0.577f }, { 0xff, 0x00, 0x00, 0xff } },
-    { {  0.0f,  0.5f,  0.0f }, { 0.f,         1.f,     0.f }, { 0x00, 0xff, 0x00, 0xff } },
-    { {  0.5f, -0.5f, -0.5f }, { 0.577f,  -0.577f, -0.577f }, { 0x00, 0x00, 0xff, 0xff } },
-    { {  0.0f, -0.5f,  0.5f }, { 0.0f,    -0.707f,  0.707f }, { 0xff, 0xff, 0xff, 0xff } }
-};
-
-static const uint16_t IndexData[] = {
-    0, 1, 2,
-    2, 1, 3,
-    3, 1, 0,
-    2, 3, 0
-};
-
 Renderer::Renderer()
 {
 }

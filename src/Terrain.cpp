@@ -42,6 +42,23 @@ static Vec2i WorldPosToTile(Vec2f worldPosXZ)
                  (int)floorf(worldPosXZ.y / (CellSize * (float)CellsPerTileZ)));
 }
 
+static Vec2i WorldPosToCell(Vec2f worldPosXZ, Vec2i tileCoords)
+{
+    // Account for the world being centred.
+    // Probably remove this in future.
+    worldPosXZ.x += 0.5f * CellSize * (float)(CellsPerTileX * NumTilesX);
+    worldPosXZ.y += 0.5f * CellSize * (float)(CellsPerTileZ * NumTilesZ);
+
+    Vec2i cellPos((int)floorf(worldPosXZ.x / CellSize),
+                  (int)floorf(worldPosXZ.y / CellSize));
+    cellPos -= Vec2i(tileCoords.x * CellsPerTileX, tileCoords.y * CellsPerTileZ);
+
+    cellPos.x = std::clamp(cellPos.x, 0, CellsPerTileX);
+    cellPos.y = std::clamp(cellPos.y, 0, CellsPerTileZ);
+
+    return cellPos;
+}
+
 
 void Terrain::Build(Renderer& renderer)
 {
@@ -98,10 +115,10 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     if (maxTile.x < 0 || maxTile.y < 0)
         return;
 
-    minTile.x = std::clamp(minTile.x, 0, NumTilesX);
-    minTile.y = std::clamp(minTile.y, 0, NumTilesZ);
-    maxTile.x = std::clamp(maxTile.x, 0, NumTilesX);
-    maxTile.y = std::clamp(maxTile.y, 0, NumTilesZ);
+    minTile.x = std::clamp(minTile.x, 0, NumTilesX - 1);
+    minTile.y = std::clamp(minTile.y, 0, NumTilesZ - 1);
+    maxTile.x = std::clamp(maxTile.x, 0, NumTilesX - 1);
+    maxTile.y = std::clamp(maxTile.y, 0, NumTilesZ - 1);
 
     // TODO: Remove this wait by double buffering while uploading.
     renderer.WaitCurrentFrame();
@@ -117,11 +134,15 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
             assert(vertexData);
 
-            // TODO: Only iterate the vertices that could be touched.
+            // Find bounds within the tile that could be touched.
+            Vec2i tileCoords(tileX, tileZ);
+            Vec2i minVert = WorldPosToCell(minPosXZ, tileCoords);
+            Vec2i maxVert = WorldPosToCell(maxPosXZ, tileCoords);
+
             // Update positions and colours.
-            for (int z = 0; z <= CellsPerTileZ; ++z)
+            for (int z = minVert.y; z <= maxVert.y; ++z)
             {
-                for (int x = 0; x <= CellsPerTileX; ++x)
+                for (int x = minVert.x; x <= maxVert.x; ++x)
                 {
                     Vertex& v = vertexData[VertexIndex(x, z)];
                     float distSq = math::length2(Vec2f(v.position.x, v.position.z) - posXZ);
@@ -131,9 +152,9 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             }
 
             // Update normals after all positions have been updated.
-            for (int z = 0; z <= CellsPerTileZ; ++z)
+            for (int z = minVert.y; z <= maxVert.y; ++z)
             {
-                for (int x = 0; x <= CellsPerTileX; ++x)
+                for (int x = minVert.x; x <= maxVert.x; ++x)
                 {
                     Vertex& v = vertexData[VertexIndex(x, z)];
                     v.normal = GenerateNormal(vertexData, Vec2i(x, z), Vec2i(tileX, tileZ));
