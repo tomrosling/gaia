@@ -170,6 +170,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         Mat4f viewMat = math::affineInverse(camMat);
         g_renderer.SetViewMatrix(viewMat);
 
+        if (g_input.IsCharKeyDown('R'))
+        {
+            g_terrain.RaiseAreaRounded(g_renderer, Vec2f(-4.f, -4.f), 3.f, 0.001f);
+        }
+
         g_renderer.BeginFrame();
         g_terrain.Render(g_renderer);
         g_renderer.EndFrame();

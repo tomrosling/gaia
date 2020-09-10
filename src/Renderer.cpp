@@ -14,20 +14,6 @@ struct PixelConstantBuffer
     Vec3f camPos;
 };
 
-static const Vertex VertexData[] = {
-    { { -0.5f, -0.5f, -0.5f }, { -0.577f, -0.577f, -0.577f }, { 0xff, 0x00, 0x00, 0xff } },
-    { {  0.0f,  0.5f,  0.0f }, { 0.f,         1.f,     0.f }, { 0x00, 0xff, 0x00, 0xff } },
-    { {  0.5f, -0.5f, -0.5f }, { 0.577f,  -0.577f, -0.577f }, { 0x00, 0x00, 0xff, 0xff } },
-    { {  0.0f, -0.5f,  0.5f }, { 0.0f,    -0.707f,  0.707f }, { 0xff, 0xff, 0xff, 0xff } }
-};
-
-static const uint16_t IndexData[] = {
-    0, 1, 2,
-    2, 1, 3,
-    3, 1, 0,
-    2, 3, 0
-};
-
 Renderer::Renderer()
 {
 }
@@ -420,9 +406,13 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
     ::UpdateSubresources(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
 }
 
-void Renderer::EndUploads()
+UINT64 Renderer::EndUploads()
 {
-    UINT64 fenceVal = m_copyCommandQueue->Execute(m_copyCommandList.Get());
+    return m_copyCommandQueue->Execute(m_copyCommandList.Get());
+}
+
+void Renderer::WaitUploads(UINT64 fenceVal)
+{
     m_copyCommandQueue->WaitFence(fenceVal);
 }
 

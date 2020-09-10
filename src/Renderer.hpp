@@ -20,7 +20,7 @@ struct Vertex
 {
     Vec3f position;
     Vec3f normal;
-    uint8_t colour[4];
+    Vec4u8 colour;
 };
 
 class Renderer
@@ -44,7 +44,8 @@ public:
     void BeginUploads();
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
-    void EndUploads();
+    [[nodiscard]] UINT64 EndUploads();
+    void WaitUploads(UINT64 fenceVal);
 
 private:
     bool CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader);

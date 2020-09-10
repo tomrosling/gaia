@@ -18,6 +18,10 @@ using Vec2i = glm::i32vec2;
 using Vec3i = glm::i32vec3;
 using Vec4i = glm::i32vec4;
 
+using Vec2u8 = glm::u8vec2;
+using Vec3u8 = glm::u8vec3;
+using Vec4u8 = glm::u8vec4;
+
 // Constants:
 static constexpr float Pif = glm::pi<float>();
 
@@ -51,6 +55,19 @@ namespace math
 using namespace glm;
 
 // Define some of our own:
+template<typename T>
+inline T Square(T x)
+{
+    return x * x;
+}
+
+template <typename T>
+inline T Lerp(T a, T b, float t)
+{
+    assert(0.f <= t && t <= 1.f);
+    return a + (T)(t * (b - a));
+}
+
 inline Vec3f Mat4fTransformVec3f(const Mat4f& m, const Vec3f& v)
 {
     return Vec3f(m * Vec4f(v, 1.f));
@@ -80,13 +97,6 @@ inline Mat3f Mat3fMakeRotationZ(float rz)
 {
     // TODO: inline and optimise.
     return Mat3f(glm::rotate(Mat4fIdentity, rz, Vec3fZ));
-}
-
-template<typename T>
-T Lerp(T a, T b, float t)
-{
-    assert(0.f <= t && t <= 1.f);
-    return a + (T)(t * (float)(b - a));
 }
 
 } // namespace math
