@@ -172,7 +172,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         if (g_input.IsCharKeyDown('R'))
         {
-            g_terrain.RaiseAreaRounded(g_renderer, Vec2f(-4.f, -4.f), 1.f, 0.01f);
+            g_terrain.RaiseAreaRounded(g_renderer, Vec2f(-4.f, -4.f), 3.f, 0.001f);
         }
 
         g_renderer.BeginFrame();

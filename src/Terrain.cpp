@@ -137,44 +137,38 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     {
         for (int tileX = minTile.x; tileX <= maxTile.x; ++tileX)
         {
+            VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
+
             // Find bounds within the tile that could be touched.
             Vec2i tileCoords(tileX, tileZ);
             Vec2i minVert = WorldPosToCell(minPosXZ, tileCoords);
             Vec2i maxVert = WorldPosToCell(maxPosXZ, tileCoords);
 
-            // We will need to read one additional row and column for generating normals.
-            Vec2i readMin(std::max(minVert.x - 1, 0), std::max(minVert.y - 1, 0));
-            Vec2i readMax(std::min(maxVert.x + 1, CellsPerTileX), std::min(maxVert.y + 1, CellsPerTileZ));
-            D3D12_RANGE readRange = { 
-                VertexIndex(readMin.x, readMin.y) * sizeof(Vertex),
-                (VertexIndex(readMax.x, readMax.y) + 1) * sizeof(Vertex)
-            };
-
-            // Map the intermediate buffer.
-            VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
-            Vertex* vertexData = nullptr;
-            vb.intermediateBuffer->Map(0, &readRange, (void**)&vertexData);
-            assert(vertexData);
-
-            // Update positions and colours.
+            // Update heightmap.
             for (int z = minVert.y; z <= maxVert.y; ++z)
             {
                 for (int x = minVert.x; x <= maxVert.x; ++x)
                 {
-                    Vertex& v = vertexData[VertexIndex(x, z)];
-                    float distSq = math::length2(Vec2f(v.position.x, v.position.z) - posXZ);
-                    v.position.y += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
-                    v.colour = GenerateCol(v.position.y);
+                    int globalX = x + tileX * CellsPerTileX;
+                    int globalZ = z + tileZ * CellsPerTileZ;
+                    Vec3f pos = ToVertexPos(globalX, 0.f, globalZ);
+                    float distSq = math::length2(Vec2f(pos.x, pos.z) - posXZ);
+                    vb.heightmap[VertexIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
                 }
             }
 
-            // Update normals after all positions have been updated.
+            // Map the intermediate buffer.
+            Vertex* vertexData = nullptr;
+            D3D12_RANGE readRange = { 1, 0 };
+            vb.intermediateBuffer->Map(0, &readRange, (void**)&vertexData);
+            assert(vertexData);
+
+            // Write to mapped buffer, updating normals and colours as we go.
             for (int z = minVert.y; z <= maxVert.y; ++z)
             {
                 for (int x = minVert.x; x <= maxVert.x; ++x)
                 {
-                    Vertex& v = vertexData[VertexIndex(x, z)];
-                    v.normal = GenerateNormal(vertexData, Vec2i(x, z), Vec2i(tileX, tileZ));
+                    UpdateVertex(vertexData, vb.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
                 }
             }
 
@@ -202,6 +196,7 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
 
     uint16_t* indexData = nullptr;
     m_indexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&indexData);
+    assert(indexData);
 
     // TODO: Consider triangle strips or other topology?
     for (int z = 0; z < CellsPerTileZ; ++z)
@@ -238,34 +233,29 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
         vb.views[i].SizeInBytes = (UINT)dataSize;
         vb.views[i].StrideInBytes = sizeof(Vertex);
     }
-    
-    Vertex* vertexData = nullptr;
-    vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
 
-    // Initialise pos, col / generate heights
+    // Generate heightmap.
+    vb.heightmap.reserve(VertsPerTile);
     for (int z = 0; z <= CellsPerTileZ; ++z)
     {
         for (int x = 0; x <= CellsPerTileX; ++x)
         {
             int globalX = x + tileX * CellsPerTileX;
             int globalZ = z + tileZ * CellsPerTileZ;
-
-            Vertex& v = vertexData[VertexIndex(x, z)];
-            v.position = GeneratePos(globalX, globalZ);
-
-            // Leave v.normal uninitialised until below...
-
-            v.colour = GenerateCol(v.position.y);
+            vb.heightmap.push_back(GenerateHeight(globalX, globalZ));
         }
     }
 
-    // Generate normals
+    // Map buffer and fill in vertex data.
+    Vertex* vertexData = nullptr;
+    vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
+    assert(vertexData);
+
     for (int z = 0; z <= CellsPerTileZ; ++z)
     {
         for (int x = 0; x <= CellsPerTileX; ++x)
         {
-            Vertex& v = vertexData[VertexIndex(x, z)];
-            v.normal = GenerateNormal(vertexData, Vec2i(x, z), Vec2i(tileX, tileZ));
+            UpdateVertex(vertexData, vb.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
         }
     }
 
@@ -302,7 +292,20 @@ void Terrain::BuildWater(Renderer& renderer)
     m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);
 }
 
-Vec3f Terrain::GeneratePos(int globalX, int globalZ)
+void Terrain::UpdateVertex(Vertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)
+{
+    int globalX = vertexCoords.x + tileCoords.x * CellsPerTileX;
+    int globalZ = vertexCoords.y + tileCoords.y * CellsPerTileZ;
+    int index = VertexIndex(vertexCoords.x, vertexCoords.y);
+
+    Vertex& v = mappedVertexData[index];
+    float height = heightmap[index];
+    v.position = ToVertexPos(globalX, height, globalZ);
+    v.normal = GenerateNormal(heightmap, vertexCoords, tileCoords);
+    v.colour = GenerateCol(height);
+}
+
+float Terrain::GenerateHeight(int globalX, int globalZ)
 {
     const struct
     {
@@ -325,11 +328,15 @@ Vec3f Terrain::GeneratePos(int globalX, int globalZ)
         height += amplitude * stb_perlin_noise3_seed((float)globalX * frequency, 0.f, (float)globalZ * frequency, 0, 0, 0, m_seed + i);
     }
 
+    return height;
+}
+
+Vec3f Terrain::ToVertexPos(int globalX, float height, int globalZ)
+{
     return Vec3f(
         CellSize * ((float)globalX - 0.5f * (float)(CellsPerTileX * NumTilesX)),
         height,
-        CellSize * ((float)globalZ - 0.5f * (float)(CellsPerTileZ * NumTilesZ))
-    );
+        CellSize * ((float)globalZ - 0.5f * (float)(CellsPerTileZ * NumTilesZ)));
 }
 
 Vec4u8 Terrain::GenerateCol(float height)
@@ -339,7 +346,7 @@ Vec4u8 Terrain::GenerateCol(float height)
     return (Vec4u8)(colf * 255.f);
 }
 
-Vec3f Terrain::GenerateNormal(const Vertex* vertexData, Vec2i vertexCoords, Vec2i tileCoords)
+Vec3f Terrain::GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)
 {
     int x = vertexCoords.x;
     int z = vertexCoords.y;
@@ -350,11 +357,15 @@ Vec3f Terrain::GenerateNormal(const Vertex* vertexData, Vec2i vertexCoords, Vec2
     // We could avoid this by adding an unrendered border to each tile, and just sampling its height.
     // Could also probably do this on the GPU.
     // TODO: This is no longer valid now the terrain can be modified.
-    // TODO: Optimise access. Probably accessing other z rows is screwing up performance.
-    Vec3f left = (x > 0) ? vertexData[VertexIndex(x - 1, z)].position : GeneratePos(globalX - 1, globalZ);
-    Vec3f down = (z > 0) ? vertexData[VertexIndex(x, z - 1)].position : GeneratePos(globalX, globalZ - 1);
-    Vec3f right = (x < CellsPerTileX) ? vertexData[VertexIndex(x + 1, z)].position : GeneratePos(globalX + 1, globalZ);
-    Vec3f up = (z < CellsPerTileZ) ? vertexData[VertexIndex(x, z + 1)].position : GeneratePos(globalX, globalZ + 1);
+    float leftHeight = (x > 0) ? heightmap[VertexIndex(x - 1, z)] : GenerateHeight(globalX - 1, globalZ);
+    float downHeight = (z > 0) ? heightmap[VertexIndex(x, z - 1)] : GenerateHeight(globalX, globalZ - 1);
+    float rightHeight = (x < CellsPerTileX) ? heightmap[VertexIndex(x + 1, z)] : GenerateHeight(globalX + 1, globalZ);
+    float upHeight = (z < CellsPerTileZ) ? heightmap[VertexIndex(x, z + 1)] : GenerateHeight(globalX, globalZ + 1);
+
+    Vec3f left = ToVertexPos(globalX - 1, leftHeight, globalZ);
+    Vec3f down = ToVertexPos(globalX, downHeight, globalZ - 1);
+    Vec3f right = ToVertexPos(globalX + 1, rightHeight, globalZ);
+    Vec3f up = ToVertexPos(globalX, upHeight, globalZ + 1);
 
     return math::normalize(math::cross(up - down, right - left));
 }
