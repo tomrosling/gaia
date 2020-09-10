@@ -178,7 +178,7 @@ bool Renderer::ResizeViewport(int width, int height)
     m_device->CreateDepthStencilView(m_depthBuffer.Get(), &dsv, m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart());
 
     m_viewport = CD3DX12_VIEWPORT(0.f, 0.f, (float)width, (float)height);
-    m_projMat = math::perspectiveFovLH(0.25f * Pif, m_viewport.Width, m_viewport.Height, 0.01f, 1000.f);
+    m_projMat = math::perspectiveFovRH(0.25f * Pif, m_viewport.Width, m_viewport.Height, 0.01f, 1000.f);
     return true;
 }
 
@@ -274,6 +274,7 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
         CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
         CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend;
+        CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER rasterizer;
     };
 
     D3D12_RT_FORMAT_ARRAY rtvFormats = {};
@@ -288,6 +289,7 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
     pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader);
     pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
     pipelineStateStream.rtvFormats = rtvFormats;
+    ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FrontCounterClockwise = true;
 
     // Enable blending.
     // TODO: Separate pass for transparent objects instead.
