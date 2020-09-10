@@ -137,15 +137,24 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     {
         for (int tileX = minTile.x; tileX <= maxTile.x; ++tileX)
         {
-            VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
-            Vertex* vertexData = nullptr;
-            vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
-            assert(vertexData);
-
             // Find bounds within the tile that could be touched.
             Vec2i tileCoords(tileX, tileZ);
             Vec2i minVert = WorldPosToCell(minPosXZ, tileCoords);
             Vec2i maxVert = WorldPosToCell(maxPosXZ, tileCoords);
+
+            // We will need to read one additional row and column for generating normals.
+            Vec2i readMin(std::max(minVert.x - 1, 0), std::max(minVert.y - 1, 0));
+            Vec2i readMax(std::min(maxVert.x + 1, CellsPerTileX), std::min(maxVert.y + 1, CellsPerTileZ));
+            D3D12_RANGE readRange = { 
+                VertexIndex(readMin.x, readMin.y) * sizeof(Vertex),
+                (VertexIndex(readMax.x, readMax.y) + 1) * sizeof(Vertex)
+            };
+
+            // Map the intermediate buffer.
+            VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
+            Vertex* vertexData = nullptr;
+            vb.intermediateBuffer->Map(0, &readRange, (void**)&vertexData);
+            assert(vertexData);
 
             // Update positions and colours.
             for (int z = minVert.y; z <= maxVert.y; ++z)
@@ -169,7 +178,11 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
                 }
             }
 
-            vb.intermediateBuffer->Unmap(0, nullptr);
+            D3D12_RANGE writeRange = {
+                VertexIndex(minVert.x, minVert.y) * sizeof(Vertex),
+                (VertexIndex(maxVert.x, maxVert.y) + 1) * sizeof(Vertex)
+            };
+            vb.intermediateBuffer->Unmap(0, &writeRange);
 
             vb.currentBuffer ^= 1;
             commandList.CopyBufferRegion(vb.gpuDoubleBuffer[vb.currentBuffer].Get(), 0, vb.intermediateBuffer.Get(), 0, VertsPerTile * sizeof(Vertex));
