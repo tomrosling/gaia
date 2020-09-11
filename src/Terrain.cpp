@@ -179,7 +179,8 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             vb.intermediateBuffer->Unmap(0, &writeRange);
 
             vb.currentBuffer ^= 1;
-            commandList.CopyBufferRegion(vb.gpuDoubleBuffer[vb.currentBuffer].Get(), 0, vb.intermediateBuffer.Get(), 0, VertsPerTile * sizeof(Vertex));
+            commandList.CopyBufferRegion(vb.gpuDoubleBuffer[vb.currentBuffer].Get(), writeRange.Begin, 
+                vb.intermediateBuffer.Get(), writeRange.Begin, writeRange.End - writeRange.Begin);
         }
     }
 
@@ -261,8 +262,12 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
 
     vb.intermediateBuffer->Unmap(0, nullptr);
 
+    // Upload initial data to both buffers.
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    commandList.CopyBufferRegion(vb.gpuDoubleBuffer[vb.currentBuffer].Get(), 0, vb.intermediateBuffer.Get(), 0, dataSize);
+    for (const ComPtr<ID3D12Resource>& buf : vb.gpuDoubleBuffer)
+    {
+        commandList.CopyBufferRegion(buf.Get(), 0, vb.intermediateBuffer.Get(), 0, dataSize);
+    }
 }
 
 void Terrain::BuildWater(Renderer& renderer)
