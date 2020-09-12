@@ -36,7 +36,6 @@ private:
     Vec2i m_mousePos = Vec2iZero;
     Vec2i m_mouseDelta = Vec2iZero;
     bool m_mouseValid = true;
-    bool m_shift = false;
 };
 
 }

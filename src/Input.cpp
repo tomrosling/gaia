@@ -27,9 +27,9 @@ void Input::EndFrame()
 void Input::LoseFocus()
 {
     m_charFlags = 0;
+    m_specialKeyFlags = 0;
     m_mouseDelta = Vec2iZero;
     m_mouseValid = false;
-    m_shift = false;
 }
 
 }
