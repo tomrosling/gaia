@@ -132,7 +132,7 @@ bool Renderer::Create(HWND hwnd)
 
 bool Renderer::ResizeViewport(int width, int height)
 {
-    assert(width > 0 && height > 0);
+    Assert(width > 0 && height > 0);
 
     // Tear down existing render targets.
     m_directCommandQueue->Flush();
@@ -438,7 +438,7 @@ void Renderer::WaitUploads(UINT64 fenceVal)
 
 Vec3f Renderer::Unproject(Vec3f screenCoords)
 {
-    assert(0.f <= screenCoords.z && screenCoords.z <= 1.f);
+    Assert(0.f <= screenCoords.z && screenCoords.z <= 1.f);
 
     // Normalise X and Y to [0, 1]
     screenCoords.x /= m_viewport.Width;

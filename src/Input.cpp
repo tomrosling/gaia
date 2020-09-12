@@ -11,7 +11,7 @@ void Input::MouseMove(Vec2i newPos)
     }
     else
     {
-        assert(m_mouseDelta == Vec2iZero);
+        Assert(m_mouseDelta == Vec2iZero);
         m_mouseValid = true;
     }
 

@@ -27,7 +27,7 @@ public:
 private:
     static int CharKeyToBitIndex(char key)
     {
-        assert('A' <= key && key <= 'Z');
+        Assert('A' <= key && key <= 'Z');
         return key - 'A';
     }
 

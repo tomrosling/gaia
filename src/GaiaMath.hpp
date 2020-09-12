@@ -64,7 +64,7 @@ inline T Square(T x)
 template <typename T>
 inline T Lerp(T a, T b, float t)
 {
-    assert(0.f <= t && t <= 1.f);
+    Assert(0.f <= t && t <= 1.f);
     return a + (T)(t * (b - a));
 }
 

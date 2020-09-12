@@ -18,11 +18,11 @@ void DebugDraw::Init(Renderer& renderer)
     // Create a PSO
     ComPtr<ID3DBlob> vertexShader;
     HRESULT result = ::D3DReadFileToBlob(L"DebugVertex.cso", &vertexShader);
-    assert(SUCCEEDED(result));
+    Assert(SUCCEEDED(result));
 
     ComPtr<ID3DBlob> pixelShader;
     result = ::D3DReadFileToBlob(L"DebugPixel.cso", &pixelShader);
-    assert(SUCCEEDED(result));
+    Assert(SUCCEEDED(result));
 
     struct PipelineStateStream
     {
@@ -55,7 +55,7 @@ void DebugDraw::Init(Renderer& renderer)
 
     D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
     result = renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState));
-    assert(SUCCEEDED(result));
+    Assert(SUCCEEDED(result));
 
     // Create buffers
     for (ComPtr<ID3D12Resource>& buf : m_doubleVertexBuffer)
@@ -67,7 +67,7 @@ void DebugDraw::Init(Renderer& renderer)
 
     D3D12_RANGE readRange = { 1, 0 };
     m_uploadBuffer->Map(0, &readRange, (void**)&m_mappedVertexBuffer);
-    assert(m_mappedVertexBuffer);
+    Assert(m_mappedVertexBuffer);
 }
 
 void DebugDraw::Render(Renderer& renderer)
@@ -113,10 +113,10 @@ void DebugDraw::Point(Vec3f pos, float halfSize, Vec4u8 col)
 
 void DebugDraw::Lines(int numPoints, const Vec3f* points, Vec4u8 col)
 {
-    assert(numPoints > 1);
-    assert(numPoints % 2 == 0);
-    assert(m_usedVertices + numPoints <= MaxVertices);
-    assert(m_uploadBuffer);
+    Assert(numPoints > 1);
+    Assert(numPoints % 2 == 0);
+    Assert(m_usedVertices + numPoints <= MaxVertices);
+    Assert(m_uploadBuffer);
 
     int vertex = m_usedVertices;
     for (int i = 0; i < numPoints; ++i)

@@ -20,22 +20,22 @@ static_assert(VertsPerTile <= (1 << 16), "Index format too small");
 
 static int VertexIndex(int x, int z) 
 {
-    assert(0 <= x && x <= CellsPerTileX);
-    assert(0 <= z && z <= CellsPerTileZ);
+    Assert(0 <= x && x <= CellsPerTileX);
+    Assert(0 <= z && z <= CellsPerTileZ);
     return (CellsPerTileX + 1) * z + x;
 }
 
 static int TileIndex(int x, int z)
 {
-    assert(0 <= x && x <= NumTilesX);
-    assert(0 <= z && z <= NumTilesZ);
+    Assert(0 <= x && x <= NumTilesX);
+    Assert(0 <= z && z <= NumTilesZ);
     return (NumTilesX) * z + x;
 }
 
 static int HeightmapIndex(int x, int z)
 {
-    assert(-1 <= x && x <= CellsPerTileX + 1);
-    assert(-1 <= z && z <= CellsPerTileZ + 1);
+    Assert(-1 <= x && x <= CellsPerTileX + 1);
+    Assert(-1 <= z && z <= CellsPerTileZ + 1);
     return (CellsPerTileX + 3) * (z + 1) + (x + 1);
 }
 
@@ -116,7 +116,7 @@ void Terrain::Render(Renderer& renderer)
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
 {
     // Check buffers not already being uploaded.
-    assert(m_uploadFenceVal == 0);
+    Assert(m_uploadFenceVal == 0);
 
     // Find all tiles touched by this transform.
     // Account for tile borders.
@@ -184,7 +184,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             Vertex* vertexData = nullptr;
             D3D12_RANGE readRange = { 1, 0 };
             vb.intermediateBuffer->Map(0, &readRange, (void**)&vertexData);
-            assert(vertexData);
+            Assert(vertexData);
 
             // Write to mapped buffer, updating normals and colours as we go.
             for (int z = minVert.y; z <= maxVert.y; ++z)
@@ -230,7 +230,7 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
 
     uint16_t* indexData = nullptr;
     m_indexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&indexData);
-    assert(indexData);
+    Assert(indexData);
 
     // TODO: Consider triangle strips or other topology?
     for (int z = 0; z < CellsPerTileZ; ++z)
@@ -255,8 +255,8 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
 
 void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
 {
-    assert(0 <= tileX && tileX < NumTilesX);
-    assert(0 <= tileZ && tileZ < NumTilesZ);
+    Assert(0 <= tileX && tileX < NumTilesX);
+    Assert(0 <= tileZ && tileZ < NumTilesZ);
 
     size_t dataSize = VertsPerTile * sizeof(Vertex);
     VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
@@ -286,7 +286,7 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     // Map buffer and fill in vertex data.
     Vertex* vertexData = nullptr;
     vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
-    assert(vertexData);
+    Assert(vertexData);
 
     for (int z = 0; z <= CellsPerTileZ; ++z)
     {

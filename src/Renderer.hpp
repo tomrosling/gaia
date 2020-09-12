@@ -39,10 +39,10 @@ public:
 
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
 
-    ID3D12Device2& GetDevice() { assert(m_device); return *m_device.Get(); }
-    ID3D12RootSignature& GetRootSignature() { assert(m_rootSignature); return *m_rootSignature.Get(); }
-    ID3D12GraphicsCommandList2& GetDirectCommandList() { assert(m_directCommandList); return *m_directCommandList.Get(); }
-    ID3D12GraphicsCommandList2& GetCopyCommandList() { assert(m_directCommandList); return *m_copyCommandList.Get(); }
+    ID3D12Device2& GetDevice() { Assert(m_device); return *m_device.Get(); }
+    ID3D12RootSignature& GetRootSignature() { Assert(m_rootSignature); return *m_rootSignature.Get(); }
+    ID3D12GraphicsCommandList2& GetDirectCommandList() { Assert(m_directCommandList); return *m_directCommandList.Get(); }
+    ID3D12GraphicsCommandList2& GetCopyCommandList() { Assert(m_directCommandList); return *m_copyCommandList.Get(); }
 
     void BeginUploads();
     ComPtr<ID3D12Resource> CreateResidentBuffer(size_t size);

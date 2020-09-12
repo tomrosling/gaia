@@ -10,13 +10,13 @@ CommandQueue::CommandQueue(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type)
     desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     desc.Type = type;
     device->CreateCommandQueue(&desc, IID_PPV_ARGS(&m_commandQueue));
-    assert(m_commandQueue);
+    Assert(m_commandQueue);
 
     device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence));
-    assert(m_fence);
+    Assert(m_fence);
 
     m_fenceEvent = ::CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    assert(m_fenceEvent);
+    Assert(m_fenceEvent);
 }
 
 UINT64 CommandQueue::Execute(ID3D12GraphicsCommandList2* commandList)
@@ -37,7 +37,7 @@ void CommandQueue::WaitFence(UINT64 value)
 {
     m_fence->SetEventOnCompletion(value, m_fenceEvent);
     DWORD ret = ::WaitForSingleObject(m_fenceEvent, 1000);
-    assert(ret == WAIT_OBJECT_0);
+    Assert(ret == WAIT_OBJECT_0);
 }
 
 void CommandQueue::Flush()

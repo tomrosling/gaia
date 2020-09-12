@@ -1,7 +1,6 @@
 #include <memory>
 #include <algorithm>
 #include <cstdlib>
-#include <cassert>
 #include <climits>
 
 #define WIN32_LEAN_AND_MEAN
@@ -17,22 +16,5 @@
 #include <d3dcompiler.h>
 #include <dxgi1_6.h>
 
+#include "GaiaDefs.hpp"
 #include "GaiaMath.hpp"
-
-namespace gaia
-{
-
-using Microsoft::WRL::ComPtr;
-
-inline void DebugOut(const char* fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int size = 1 + vsnprintf(nullptr, 0, fmt, args);
-    char* buf = (char*)alloca(size);
-    vsnprintf(buf, size, fmt, args);
-    ::OutputDebugStringA(buf);
-    va_end(args);
-}
-
-}
