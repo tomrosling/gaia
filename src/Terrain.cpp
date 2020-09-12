@@ -190,7 +190,8 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
 void Terrain::BuildIndexBuffer(Renderer& renderer)
 {
     size_t dataSize = IndicesPerTile * sizeof(uint16_t);
-    renderer.CreateBuffer(m_indexBuffer.buffer, m_indexBuffer.intermediateBuffer, dataSize);
+    m_indexBuffer.buffer = renderer.CreateResidentBuffer(dataSize);
+    m_indexBuffer.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
     m_indexBuffer.view.BufferLocation = m_indexBuffer.buffer->GetGPUVirtualAddress();
     m_indexBuffer.view.Format = DXGI_FORMAT_R16_UINT;
     m_indexBuffer.view.SizeInBytes = (UINT)dataSize;
@@ -229,11 +230,12 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
     for (int i = 0; i < 2; ++i)
     {
-        renderer.CreateBuffer(vb.gpuDoubleBuffer[i], vb.intermediateBuffer, dataSize);
+        vb.gpuDoubleBuffer[i] = renderer.CreateResidentBuffer(dataSize);
         vb.views[i].BufferLocation = vb.gpuDoubleBuffer[i]->GetGPUVirtualAddress();
         vb.views[i].SizeInBytes = (UINT)dataSize;
         vb.views[i].StrideInBytes = sizeof(Vertex);
     }
+    vb.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
 
     // Generate heightmap.
     vb.heightmap.reserve(VertsPerTile);

@@ -2,6 +2,7 @@
 #include "Camera.hpp"
 #include "Terrain.hpp"
 #include "Input.hpp"
+#include "DebugDraw.hpp"
 
 using namespace gaia;
 
@@ -51,6 +52,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
         return 1;
 
     // By this point, assume we have enough driver support to go without further error checks...
+    DebugDraw::Instance().Init(g_renderer);
     g_terrain.Build(g_renderer);
     
     ::ShowWindow(hwnd, SW_SHOW);
@@ -177,6 +179,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         g_renderer.BeginFrame();
         g_terrain.Render(g_renderer);
+        DebugDraw::Instance().Render(g_renderer);
         g_renderer.EndFrame();
 
         g_input.EndFrame();

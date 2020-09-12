@@ -123,6 +123,9 @@ bool Renderer::Create(HWND hwnd)
 
     // NOTE: We don't actually create the render and depth targets here, assuming ResizeViewport will be called with an appropriate size.
 
+    if (!CreateRootSignature())
+        return false;
+
     m_created = true;
     return true;
 }
@@ -226,15 +229,8 @@ bool Renderer::HotloadShaders()
     return CreateDefaultPipelineState(vertexShader.Get(), pixelShader.Get());
 }
 
-bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader)
+bool Renderer::CreateRootSignature()
 {
-    // Define vertex layout
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
-
     // Check root signature 1.1 support...
     D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
     featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
@@ -263,6 +259,11 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
         return false;
     }
 
+    return true;
+}
+
+bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader)
+{
     // Create PSO
     struct PipelineStateStream
     {
@@ -275,6 +276,13 @@ bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixe
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
         CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend;
         CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER rasterizer;
+    };
+
+    // Define vertex layout
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
     D3D12_RT_FORMAT_ARRAY rtvFormats = {};
@@ -381,24 +389,34 @@ void Renderer::BeginUploads()
     m_copyCommandList->Reset(m_copyCommandAllocator.Get(), nullptr);
 }
 
-void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size)
+ComPtr<ID3D12Resource> Renderer::CreateResidentBuffer(size_t size)
 {
-    // Create destination buffer
+    ComPtr<ID3D12Resource> ret;
     CD3DX12_HEAP_PROPERTIES defaultHeapProps(D3D12_HEAP_TYPE_DEFAULT);
     CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
     m_device->CreateCommittedResource(&defaultHeapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&bufferOut));
+                                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&ret));
+    return ret;
+}
 
-    // Create an intermediate buffer to upload via
-    // (this must remain in scope in the calling code until the command list has been executed)
+ComPtr<ID3D12Resource> Renderer::CreateUploadBuffer(size_t size)
+{
+    ComPtr<ID3D12Resource> ret;
     CD3DX12_HEAP_PROPERTIES uploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
+    CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
     m_device->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&intermediateBuffer));
+                                      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&ret));
+    return ret;
 }
 
 void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
 {
-    CreateBuffer(bufferOut, intermediateBuffer, size);
+    // Create destination buffer
+    bufferOut = CreateResidentBuffer(size);
+
+    // Create an intermediate buffer to upload via
+    // (this must remain in scope in the calling code until the command list has been executed)
+    intermediateBuffer = CreateUploadBuffer(size);
 
     // Upload initial data.
     D3D12_SUBRESOURCE_DATA subresourceData = {};
