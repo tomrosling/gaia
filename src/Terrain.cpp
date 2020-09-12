@@ -7,13 +7,14 @@
 namespace gaia
 {
 
-const int NumTilesX = 2;
-const int NumTilesZ = 2;
-const int CellsPerTileX = 255;
-const int CellsPerTileZ = 255;
-const int VertsPerTile = (CellsPerTileX + 1) * (CellsPerTileZ + 1);
-const int IndicesPerTile = 2 * 3 * CellsPerTileX * CellsPerTileZ;
-const float CellSize = 0.05f;
+static constexpr int NumTilesX = 2;
+static constexpr int NumTilesZ = 2;
+static constexpr int CellsPerTileX = 255;
+static constexpr int CellsPerTileZ = 255;
+static constexpr int VertsPerTile = (CellsPerTileX + 1) * (CellsPerTileZ + 1);
+static constexpr int VertsPerHeightmap = (CellsPerTileX + 3) * (CellsPerTileZ + 3);
+static constexpr int IndicesPerTile = 2 * 3 * CellsPerTileX * CellsPerTileZ;
+static constexpr float CellSize = 0.05f;
 static_assert(VertsPerTile <= (1 << 16), "Index format too small");
 
 
@@ -29,6 +30,13 @@ static int TileIndex(int x, int z)
     assert(0 <= x && x <= NumTilesX);
     assert(0 <= z && z <= NumTilesZ);
     return (NumTilesX) * z + x;
+}
+
+static int HeightmapIndex(int x, int z)
+{
+    assert(-1 <= x && x <= CellsPerTileX + 1);
+    assert(-1 <= z && z <= CellsPerTileZ + 1);
+    return (CellsPerTileX + 3) * (z + 1) + (x + 1);
 }
 
 static Vec2i WorldPosToTile(Vec2f worldPosXZ)
@@ -52,9 +60,6 @@ static Vec2i WorldPosToCell(Vec2f worldPosXZ, Vec2i tileCoords)
     Vec2i cellPos((int)floorf(worldPosXZ.x / CellSize),
                   (int)floorf(worldPosXZ.y / CellSize));
     cellPos -= Vec2i(tileCoords.x * CellsPerTileX, tileCoords.y * CellsPerTileZ);
-
-    cellPos.x = std::clamp(cellPos.x, 0, CellsPerTileX);
-    cellPos.y = std::clamp(cellPos.y, 0, CellsPerTileZ);
 
     return cellPos;
 }
@@ -114,10 +119,11 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     assert(m_uploadFenceVal == 0);
 
     // Find all tiles touched by this transform.
+    // Account for tile borders.
     Vec2f minPosXZ = posXZ - Vec2f(radius, radius);
     Vec2f maxPosXZ = posXZ + Vec2f(radius, radius);
-    Vec2i minTile = WorldPosToTile(minPosXZ);
-    Vec2i maxTile = WorldPosToTile(maxPosXZ);
+    Vec2i minTile = WorldPosToTile(minPosXZ - Vec2f(CellSize, CellSize));
+    Vec2i maxTile = WorldPosToTile(maxPosXZ + Vec2f(CellSize, CellSize));
 
     // Skip if outside the world.
     if (minTile.x >= NumTilesX || minTile.y >= NumTilesZ)
@@ -144,6 +150,12 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             Vec2i minVert = WorldPosToCell(minPosXZ, tileCoords);
             Vec2i maxVert = WorldPosToCell(maxPosXZ, tileCoords);
 
+            // Clamp to heightmap bounds.
+            minVert.x = std::clamp(minVert.x, -1, CellsPerTileX + 1);
+            minVert.y = std::clamp(minVert.y, -1, CellsPerTileZ + 1);
+            maxVert.x = std::clamp(maxVert.x, -1, CellsPerTileX + 1);
+            maxVert.y = std::clamp(maxVert.y, -1, CellsPerTileZ + 1);
+
             // Update heightmap.
             for (int z = minVert.y; z <= maxVert.y; ++z)
             {
@@ -153,9 +165,20 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
                     int globalZ = z + tileZ * CellsPerTileZ;
                     Vec3f pos = ToVertexPos(globalX, 0.f, globalZ);
                     float distSq = math::length2(Vec2f(pos.x, pos.z) - posXZ);
-                    vb.heightmap[VertexIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
+                    vb.heightmap[HeightmapIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
                 }
             }
+
+            // We might not actually have to upload.
+            if (maxVert.x < 0 || CellsPerTileX < minVert.x ||
+                maxVert.y < 0 || CellsPerTileZ < minVert.y)
+                continue;
+
+            // Now clamp to actual tile bounds.
+            minVert.x = std::clamp(minVert.x, 0, CellsPerTileX);
+            minVert.y = std::clamp(minVert.y, 0, CellsPerTileZ);
+            maxVert.x = std::clamp(maxVert.x, 0, CellsPerTileX);
+            maxVert.y = std::clamp(maxVert.y, 0, CellsPerTileZ);
 
             // Map the intermediate buffer.
             Vertex* vertexData = nullptr;
@@ -247,10 +270,12 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     vb.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
 
     // Generate heightmap.
-    vb.heightmap.reserve(VertsPerTile);
-    for (int z = 0; z <= CellsPerTileZ; ++z)
+    // The heightmap has an extra row and column on each side
+    // to allow us to smoothly calculate the gradient between tiles (i.e. they overlap).
+    vb.heightmap.reserve(VertsPerHeightmap);
+    for (int z = -1; z <= CellsPerTileZ + 1; ++z)
     {
-        for (int x = 0; x <= CellsPerTileX; ++x)
+        for (int x = -1; x <= CellsPerTileX + 1; ++x)
         {
             int globalX = x + tileX * CellsPerTileX;
             int globalZ = z + tileZ * CellsPerTileZ;
@@ -312,10 +337,9 @@ void Terrain::UpdateVertex(Vertex* mappedVertexData, const std::vector<float>& h
 {
     int globalX = vertexCoords.x + tileCoords.x * CellsPerTileX;
     int globalZ = vertexCoords.y + tileCoords.y * CellsPerTileZ;
-    int index = VertexIndex(vertexCoords.x, vertexCoords.y);
 
-    Vertex& v = mappedVertexData[index];
-    float height = heightmap[index];
+    Vertex& v = mappedVertexData[VertexIndex(vertexCoords.x, vertexCoords.y)];
+    float height = heightmap[HeightmapIndex(vertexCoords.x, vertexCoords.y)];
     v.position = ToVertexPos(globalX, height, globalZ);
     v.normal = GenerateNormal(heightmap, vertexCoords, tileCoords);
     v.colour = GenerateCol(height);
@@ -364,24 +388,18 @@ Vec4u8 Terrain::GenerateCol(float height)
 
 Vec3f Terrain::GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)
 {
+    // Sample the heightmap, including the overlapped borders, to find the gradient/normal.
+    // Could probably still do this on the GPU.
+
     int x = vertexCoords.x;
     int z = vertexCoords.y;
     int globalX = x + tileCoords.x * CellsPerTileX;
     int globalZ = z + tileCoords.y * CellsPerTileZ;
 
-    // Make sure seams have consistent normals by resampling the Perlin noise when the neighbouring vertices don't exist.
-    // We could avoid this by adding an unrendered border to each tile, and just sampling its height.
-    // Could also probably do this on the GPU.
-    // TODO: This is no longer valid now the terrain can be modified.
-    float leftHeight = (x > 0) ? heightmap[VertexIndex(x - 1, z)] : GenerateHeight(globalX - 1, globalZ);
-    float downHeight = (z > 0) ? heightmap[VertexIndex(x, z - 1)] : GenerateHeight(globalX, globalZ - 1);
-    float rightHeight = (x < CellsPerTileX) ? heightmap[VertexIndex(x + 1, z)] : GenerateHeight(globalX + 1, globalZ);
-    float upHeight = (z < CellsPerTileZ) ? heightmap[VertexIndex(x, z + 1)] : GenerateHeight(globalX, globalZ + 1);
-
-    Vec3f left = ToVertexPos(globalX - 1, leftHeight, globalZ);
-    Vec3f down = ToVertexPos(globalX, downHeight, globalZ - 1);
-    Vec3f right = ToVertexPos(globalX + 1, rightHeight, globalZ);
-    Vec3f up = ToVertexPos(globalX, upHeight, globalZ + 1);
+    Vec3f left =  ToVertexPos(globalX - 1, heightmap[HeightmapIndex(x - 1, z    )], globalZ    );
+    Vec3f down =  ToVertexPos(globalX,     heightmap[HeightmapIndex(x,     z - 1)], globalZ - 1);
+    Vec3f right = ToVertexPos(globalX + 1, heightmap[HeightmapIndex(x + 1, z    )], globalZ    );
+    Vec3f up =    ToVertexPos(globalX,     heightmap[HeightmapIndex(x,     z + 1)], globalZ + 1);
 
     return math::normalize(math::cross(up - down, right - left));
 }
