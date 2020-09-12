@@ -172,9 +172,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         Mat4f viewMat = math::affineInverse(camMat);
         g_renderer.SetViewMatrix(viewMat);
 
-        if (g_input.IsCharKeyDown('R'))
+        Vec3f mousePosFarClip = g_renderer.Unproject(Vec3f((Vec2f)g_input.GetMousePos(), 1.f));
+        Vec3f rayStart(camMat[3]);
+        Vec3f rayEnd = math::Mat4fTransformVec3f(camMat, mousePosFarClip);
+        float t = g_terrain.Raycast(rayStart, rayEnd);
+        if (t >= 0.f)
         {
-            g_terrain.RaiseAreaRounded(g_renderer, Vec2f(-4.f, -4.f), 3.f, 0.001f);
+            Vec3f hit = math::Lerp(rayStart, rayEnd, t);
+            DebugDraw::Instance().Point(hit, 0.5f, Vec4u8(0xff, 0xff, 0xff, 0xff));
+
+            if (g_input.IsCharKeyDown('R'))
+            {
+                g_terrain.RaiseAreaRounded(g_renderer, Vec2f(hit.x, hit.z), 3.f, 0.002f);
+            }
+
+            if (g_input.IsCharKeyDown('L'))
+            {
+                g_terrain.RaiseAreaRounded(g_renderer, Vec2f(hit.x, hit.z), 3.f, -0.002f);
+            }
         }
 
         g_renderer.BeginFrame();

@@ -28,6 +28,7 @@ public:
     void Build(Renderer& renderer);
     void Render(Renderer& renderer);
     void RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy);
+    float Raycast(Vec3f rayStart, Vec3f rayEnd);
 
 private:
     void BuildIndexBuffer(Renderer& renderer);

@@ -51,6 +51,8 @@ public:
     [[nodiscard]] UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);
 
+    Vec3f Unproject(Vec3f screenCoords);
+
 private:
     bool CreateRootSignature();
     bool CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader);

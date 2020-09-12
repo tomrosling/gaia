@@ -187,6 +187,15 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     m_uploadFenceVal = renderer.EndUploads();
 }
 
+float Terrain::Raycast(Vec3f rayStart, Vec3f rayEnd)
+{
+    // Placeholder - just cast against y == 0.
+    if (fabsf(rayStart.y - rayEnd.y) < FLT_EPSILON)
+        return -1.f;
+    float t = rayStart.y / (rayStart.y - rayEnd.y);
+    return (t <= 1.f) ? t : -1.f;
+}
+
 void Terrain::BuildIndexBuffer(Renderer& renderer)
 {
     size_t dataSize = IndicesPerTile * sizeof(uint16_t);

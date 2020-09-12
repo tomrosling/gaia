@@ -13,6 +13,7 @@ class Input
 public:
     bool IsCharKeyDown(char key) const { return (m_charFlags & (1 << CharKeyToBitIndex(key))); }
     bool IsSpecialKeyDown(SpecialKey key) const { return m_specialKeyFlags & (1 << (int)key); }
+    Vec2i GetMousePos() const { return m_mousePos; }
     Vec2i GetMouseDelta() const { return m_mouseDelta; }
 
     void SetCharKeyDown(char key) { m_charFlags |= (1 << CharKeyToBitIndex(key)); }

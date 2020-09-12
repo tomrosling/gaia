@@ -436,4 +436,29 @@ void Renderer::WaitUploads(UINT64 fenceVal)
     m_copyCommandQueue->WaitFence(fenceVal);
 }
 
+Vec3f Renderer::Unproject(Vec3f screenCoords)
+{
+    assert(0.f <= screenCoords.z && screenCoords.z <= 1.f);
+
+    // Normalise X and Y to [0, 1]
+    screenCoords.x /= m_viewport.Width;
+    screenCoords.y /= m_viewport.Height;
+
+    // Flip so Y is up
+    screenCoords.y = 1.f - screenCoords.y;
+
+    // Normalise X and Y to [-1, 1]
+    screenCoords.x = 2.f * screenCoords.x - 1.f;
+    screenCoords.y = 2.f * screenCoords.y - 1.f;
+
+    // Unproject.
+    // Note: this is left in the nonlinear space used for projection, so
+    // e.g. screenCoords.z == 0.5 will NOT give the half way point between 
+    // the near and far planes.
+    // It *should* match up to the values in the depth buffer, but
+    // TODO: double check this when depth buffer reads are implemented.
+    Vec4f viewCoords = math::inverse(m_projMat) * Vec4f(screenCoords, 1.f);
+    return Vec3f(viewCoords) / viewCoords.w;
+}
+
 }
