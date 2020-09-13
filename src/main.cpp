@@ -123,6 +123,30 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
+    case WM_LBUTTONDOWN:
+        g_input.SetMouseButtonDown(MouseButton::Left);
+        return 0;
+
+    case WM_LBUTTONUP:
+        g_input.SetMouseButtonUp(MouseButton::Left);
+        return 0;
+
+    case WM_RBUTTONDOWN:
+        g_input.SetMouseButtonDown(MouseButton::Right);
+        return 0;
+
+    case WM_RBUTTONUP:
+        g_input.SetMouseButtonUp(MouseButton::Right);
+        return 0;
+
+    case WM_MBUTTONDOWN:
+        g_input.SetMouseButtonDown(MouseButton::Middle);
+        return 0;
+
+    case WM_MBUTTONUP:
+        g_input.SetMouseButtonUp(MouseButton::Middle);
+        return 0;
+        
     case WM_KEYDOWN:
         if ('A' <= wParam && wParam <= 'Z')
         {
@@ -176,12 +200,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             Vec3f pickPointWorldSpace = math::Mat4fTransformVec3f(oldCamMat, pickPointViewSpace);
             DebugDraw::Instance().Point(pickPointWorldSpace, 0.5f, Vec4u8(0xff, 0xff, 0x00, 0xff));
 
-            if (g_input.IsCharKeyDown('R'))
+            if (g_input.IsMouseButtonDown(MouseButton::Left))
             {
                 g_terrain.RaiseAreaRounded(g_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), 3.f, 0.002f);
             }
 
-            if (g_input.IsCharKeyDown('L'))
+            if (g_input.IsMouseButtonDown(MouseButton::Right))
             {
                 g_terrain.RaiseAreaRounded(g_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), 3.f, -0.002f);
             }
