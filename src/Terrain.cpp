@@ -72,7 +72,7 @@ void Terrain::Build(Renderer& renderer)
     // Note: rand() is not seeded so this is still deterministic, for now.
     m_seed = rand();
 
-    m_tileVertexBuffers.resize(NumTilesX * NumTilesZ);
+    m_tiles.resize(NumTilesX * NumTilesZ);
     for (int z = 0; z < NumTilesZ; ++z)
     {
         for (int x = 0; x < NumTilesX; ++x)
@@ -100,9 +100,9 @@ void Terrain::Render(Renderer& renderer)
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // Render the terrain itself.
-    for (const VertexBuffer& vertexBuffer : m_tileVertexBuffers)
+    for (const Tile& tile : m_tiles)
     {
-        commandList.IASetVertexBuffers(0, 1, &vertexBuffer.views[vertexBuffer.currentBuffer]);
+        commandList.IASetVertexBuffers(0, 1, &tile.views[tile.currentBuffer]);
         commandList.IASetIndexBuffer(&m_indexBuffer.view);
         commandList.DrawIndexedInstanced(IndicesPerTile, 1, 0, 0, 0);
     }
@@ -143,7 +143,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     {
         for (int tileX = minTile.x; tileX <= maxTile.x; ++tileX)
         {
-            VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
+            Tile& tile = m_tiles[TileIndex(tileX, tileZ)];
 
             // Find bounds within the tile that could be touched.
             Vec2i tileCoords(tileX, tileZ);
@@ -165,7 +165,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
                     int globalZ = z + tileZ * CellsPerTileZ;
                     Vec3f pos = ToVertexPos(globalX, 0.f, globalZ);
                     float distSq = math::length2(Vec2f(pos.x, pos.z) - posXZ);
-                    vb.heightmap[HeightmapIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
+                    tile.heightmap[HeightmapIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
                 }
             }
 
@@ -180,30 +180,38 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             maxVert.x = std::clamp(maxVert.x, 0, CellsPerTileX);
             maxVert.y = std::clamp(maxVert.y, 0, CellsPerTileZ);
 
+            // Last time we modified this tile, we only updated one of the two buffers.
+            // Combine the region we modified that time with the one we're modifying this time.
+            // This assumes the regions will be close between frames, and performance will be bad if they're not.
+            Vec2i dirtyUnionMin(std::min(minVert.x, tile.dirtyMin.x), std::min(minVert.y, tile.dirtyMin.y));
+            Vec2i dirtyUnionMax(std::max(maxVert.x, tile.dirtyMax.x), std::max(maxVert.y, tile.dirtyMax.y));
+            tile.dirtyMin = minVert;
+            tile.dirtyMax = maxVert;
+
             // Map the intermediate buffer.
             Vertex* vertexData = nullptr;
             D3D12_RANGE readRange = { 1, 0 };
-            vb.intermediateBuffer->Map(0, &readRange, (void**)&vertexData);
+            tile.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
             Assert(vertexData);
 
             // Write to mapped buffer, updating normals and colours as we go.
-            for (int z = minVert.y; z <= maxVert.y; ++z)
+            for (int z = dirtyUnionMin.y; z <= dirtyUnionMax.y; ++z)
             {
-                for (int x = minVert.x; x <= maxVert.x; ++x)
+                for (int x = dirtyUnionMin.x; x <= dirtyUnionMax.x; ++x)
                 {
-                    UpdateVertex(vertexData, vb.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
+                    UpdateVertex(vertexData, tile.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
                 }
             }
 
             D3D12_RANGE writeRange = {
-                VertexIndex(minVert.x, minVert.y) * sizeof(Vertex),
-                (VertexIndex(maxVert.x, maxVert.y) + 1) * sizeof(Vertex)
+                VertexIndex(dirtyUnionMin.x, dirtyUnionMin.y) * sizeof(Vertex),
+                (VertexIndex(dirtyUnionMax.x, dirtyUnionMax.y) + 1) * sizeof(Vertex)
             };
-            vb.intermediateBuffer->Unmap(0, &writeRange);
+            tile.intermediateBuffer->Unmap(0, &writeRange);
 
-            vb.currentBuffer ^= 1;
-            commandList.CopyBufferRegion(vb.gpuDoubleBuffer[vb.currentBuffer].Get(), writeRange.Begin, 
-                vb.intermediateBuffer.Get(), writeRange.Begin, writeRange.End - writeRange.Begin);
+            tile.currentBuffer ^= 1;
+            commandList.CopyBufferRegion(tile.gpuDoubleBuffer[tile.currentBuffer].Get(), writeRange.Begin, 
+                tile.intermediateBuffer.Get(), writeRange.Begin, writeRange.End - writeRange.Begin);
         }
     }
 
@@ -250,50 +258,52 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     Assert(0 <= tileZ && tileZ < NumTilesZ);
 
     size_t dataSize = VertsPerTile * sizeof(Vertex);
-    VertexBuffer& vb = m_tileVertexBuffers[TileIndex(tileX, tileZ)];
+    Tile& tile = m_tiles[TileIndex(tileX, tileZ)];
     for (int i = 0; i < 2; ++i)
     {
-        vb.gpuDoubleBuffer[i] = renderer.CreateResidentBuffer(dataSize);
-        vb.views[i].BufferLocation = vb.gpuDoubleBuffer[i]->GetGPUVirtualAddress();
-        vb.views[i].SizeInBytes = (UINT)dataSize;
-        vb.views[i].StrideInBytes = sizeof(Vertex);
+        tile.gpuDoubleBuffer[i] = renderer.CreateResidentBuffer(dataSize);
+        tile.views[i].BufferLocation = tile.gpuDoubleBuffer[i]->GetGPUVirtualAddress();
+        tile.views[i].SizeInBytes = (UINT)dataSize;
+        tile.views[i].StrideInBytes = sizeof(Vertex);
     }
-    vb.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
+    tile.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
+    tile.dirtyMin = Vec2i(CellsPerTileX, CellsPerTileZ);
+    tile.dirtyMax = Vec2i(0, 0);
 
     // Generate heightmap.
     // The heightmap has an extra row and column on each side
     // to allow us to smoothly calculate the gradient between tiles (i.e. they overlap).
-    vb.heightmap.reserve(VertsPerHeightmap);
+    tile.heightmap.reserve(VertsPerHeightmap);
     for (int z = -1; z <= CellsPerTileZ + 1; ++z)
     {
         for (int x = -1; x <= CellsPerTileX + 1; ++x)
         {
             int globalX = x + tileX * CellsPerTileX;
             int globalZ = z + tileZ * CellsPerTileZ;
-            vb.heightmap.push_back(GenerateHeight(globalX, globalZ));
+            tile.heightmap.push_back(GenerateHeight(globalX, globalZ));
         }
     }
 
     // Map buffer and fill in vertex data.
     Vertex* vertexData = nullptr;
-    vb.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
+    tile.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
     Assert(vertexData);
 
     for (int z = 0; z <= CellsPerTileZ; ++z)
     {
         for (int x = 0; x <= CellsPerTileX; ++x)
         {
-            UpdateVertex(vertexData, vb.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
+            UpdateVertex(vertexData, tile.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
         }
     }
 
-    vb.intermediateBuffer->Unmap(0, nullptr);
+    tile.intermediateBuffer->Unmap(0, nullptr);
 
     // Upload initial data to both buffers.
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    for (const ComPtr<ID3D12Resource>& buf : vb.gpuDoubleBuffer)
+    for (const ComPtr<ID3D12Resource>& buf : tile.gpuDoubleBuffer)
     {
-        commandList.CopyBufferRegion(buf.Get(), 0, vb.intermediateBuffer.Get(), 0, dataSize);
+        commandList.CopyBufferRegion(buf.Get(), 0, tile.intermediateBuffer.Get(), 0, dataSize);
     }
 }
 

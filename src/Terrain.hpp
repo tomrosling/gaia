@@ -9,12 +9,14 @@ struct Vertex;
 class Terrain
 {
 public:
-    struct VertexBuffer
+    struct Tile
     {
         ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
         D3D12_VERTEX_BUFFER_VIEW views[2] = {};
         ComPtr<ID3D12Resource> intermediateBuffer;
         std::vector<float> heightmap;
+        Vec2i dirtyMin = Vec2iZero;
+        Vec2i dirtyMax = Vec2iZero;
         int currentBuffer = 0;
     };
 
@@ -39,7 +41,7 @@ private:
     Vec4u8 GenerateCol(float height);
     Vec3f GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
 
-    std::vector<VertexBuffer> m_tileVertexBuffers;
+    std::vector<Tile> m_tiles;
     IndexBuffer m_indexBuffer; // Indices are the same for each tile.
     uint64 m_uploadFenceVal = 0;
     int m_seed = 0;
