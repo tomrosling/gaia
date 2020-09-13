@@ -41,7 +41,7 @@ private:
 
     std::vector<VertexBuffer> m_tileVertexBuffers;
     IndexBuffer m_indexBuffer; // Indices are the same for each tile.
-    uint64_t m_uploadFenceVal = 0;
+    uint64 m_uploadFenceVal = 0;
     int m_seed = 0;
 
     ComPtr<ID3D12Resource> m_waterVertexBuffer;

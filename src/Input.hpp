@@ -31,8 +31,8 @@ private:
         return key - 'A';
     }
 
-    uint32_t m_charFlags = 0;
-    uint32_t m_specialKeyFlags = 0;
+    uint32 m_charFlags = 0;
+    uint32 m_specialKeyFlags = 0;
     Vec2i m_mousePos = Vec2iZero;
     Vec2i m_mouseDelta = Vec2iZero;
     bool m_mouseValid = true;

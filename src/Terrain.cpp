@@ -110,7 +110,7 @@ void Terrain::Render(Renderer& renderer)
     // Render "water".
     commandList.IASetVertexBuffers(0, 1, &m_waterVertexBufferView);
     commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
-    commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16_t), 1, 0, 0, 0);
+    commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
 }
 
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
@@ -212,14 +212,14 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
 
 void Terrain::BuildIndexBuffer(Renderer& renderer)
 {
-    size_t dataSize = IndicesPerTile * sizeof(uint16_t);
+    size_t dataSize = IndicesPerTile * sizeof(uint16);
     m_indexBuffer.buffer = renderer.CreateResidentBuffer(dataSize);
     m_indexBuffer.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
     m_indexBuffer.view.BufferLocation = m_indexBuffer.buffer->GetGPUVirtualAddress();
     m_indexBuffer.view.Format = DXGI_FORMAT_R16_UINT;
     m_indexBuffer.view.SizeInBytes = (UINT)dataSize;
 
-    uint16_t* indexData = nullptr;
+    uint16* indexData = nullptr;
     m_indexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&indexData);
     Assert(indexData);
 
@@ -228,7 +228,7 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
     {
         for (int x = 0; x < CellsPerTileX; ++x)
         {
-            uint16_t* p = &indexData[2 * 3 * (CellsPerTileX * z + x)];
+            uint16* p = &indexData[2 * 3 * (CellsPerTileX * z + x)];
             p[0] = (CellsPerTileX + 1) * (z + 0) + (x + 0);
             p[1] = (CellsPerTileX + 1) * (z + 1) + (x + 0);
             p[2] = (CellsPerTileX + 1) * (z + 1) + (x + 1);
@@ -308,7 +308,7 @@ void Terrain::BuildWater(Renderer& renderer)
         { {  HalfGridSizeX, 0.f, -HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
     };
 
-    const uint16_t WaterIndices[] = {
+    const uint16 WaterIndices[] = {
         0, 1, 2,
         0, 2, 3
     };
