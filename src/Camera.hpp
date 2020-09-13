@@ -9,6 +9,7 @@ class Camera
 {
 public:
     Mat4f Update(const Input& input, float dt);
+    Mat4f GetMatrix() const;
 
 private:
     // State

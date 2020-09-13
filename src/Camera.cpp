@@ -33,4 +33,10 @@ Mat4f Camera::Update(const Input& input, float dt)
     return math::Mat4fCompose(rotMat, m_pos);
 }
 
+Mat4f Camera::GetMatrix() const
+{
+    Mat3f rotMat = math::Mat3fMakeRotationY(m_rot.y) * math::Mat3fMakeRotationX(m_rot.x);
+    return math::Mat4fCompose(rotMat, m_pos);
+}
+
 }

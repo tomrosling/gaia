@@ -4,6 +4,11 @@
 namespace gaia
 {
 
+static int GetTexturePitchBytes(int width, int bytesPerTexel)
+{
+    return math::AlignPow2(width * bytesPerTexel, 256);
+}
+
 struct VertexConstantBuffer
 {
     Mat4f mvpMatrix;
@@ -136,6 +141,7 @@ bool Renderer::ResizeViewport(int width, int height)
 
     // Tear down existing render targets.
     m_directCommandQueue->Flush();
+    m_copyCommandQueue->Flush();
     m_depthBuffer = nullptr;
     for (auto& rt : m_renderTargets)
     {
@@ -169,7 +175,7 @@ bool Renderer::ResizeViewport(int width, int height)
     CD3DX12_RESOURCE_DESC depthResourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(
         DXGI_FORMAT_D32_FLOAT, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
     if (FAILED(m_device->CreateCommittedResource(&depthHeapProperties, D3D12_HEAP_FLAG_NONE, &depthResourceDesc,
-                                                 D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClear, IID_PPV_ARGS(&m_depthBuffer))))
+                                                 D3D12_RESOURCE_STATE_COMMON, &depthClear, IID_PPV_ARGS(&m_depthBuffer))))
         return false;
 
     // Create DSV.
@@ -179,6 +185,9 @@ bool Renderer::ResizeViewport(int width, int height)
     dsv.Texture2D.MipSlice = 0;
     dsv.Flags = D3D12_DSV_FLAG_NONE;
     m_device->CreateDepthStencilView(m_depthBuffer.Get(), &dsv, m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart());
+
+    // Create a readback buffer for the depth.
+    m_depthReadbackBuffer = CreateReadbackBuffer(GetTexturePitchBytes(width, sizeof(float)) * height);
 
     m_viewport = CD3DX12_VIEWPORT(0.f, 0.f, (float)width, (float)height);
     m_projMat = math::perspectiveFovRH(0.25f * Pif, m_viewport.Width, m_viewport.Height, 0.01f, 1000.f);
@@ -329,10 +338,14 @@ void Renderer::BeginFrame()
     commandAllocator->Reset();
     m_directCommandList->Reset(commandAllocator, nullptr);
 
-    // Transition to a renderable state
-    CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+    // Transition render target and depth buffer to a renderable state
+    CD3DX12_RESOURCE_BARRIER rtBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    m_directCommandList->ResourceBarrier(1, &barrier);
+    m_directCommandList->ResourceBarrier(1, &rtBarrier);
+
+    CD3DX12_RESOURCE_BARRIER dsBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthBuffer.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    m_directCommandList->ResourceBarrier(1, &dsBarrier);
 
     // Clear backbuffer
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBuffer, m_rtvDescriptorSize);
@@ -362,10 +375,31 @@ void Renderer::BeginFrame()
 
 void Renderer::EndFrame()
 {
-    // Transition to present state
-    CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+    // Transition render target to present state
+    CD3DX12_RESOURCE_BARRIER rtBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         m_renderTargets[m_currentBuffer].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-    m_directCommandList->ResourceBarrier(1, &barrier);
+    m_directCommandList->ResourceBarrier(1, &rtBarrier);
+
+    // Transition depth buffer to allow readback
+    CD3DX12_RESOURCE_BARRIER dsBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depthBuffer.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COMMON);
+    m_directCommandList->ResourceBarrier(1, &dsBarrier);
+
+    // Read back depth buffer after drawing.
+    // TODO: If we used a separate command list (but still m_directCommandQueue),
+    // could we allow the frame to present before this has finished, and wait on it separately?
+    D3D12_TEXTURE_COPY_LOCATION dst;
+    dst.pResource = m_depthReadbackBuffer.Get(),
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst.PlacedFootprint.Footprint;
+    dst.PlacedFootprint.Offset = 0;
+    dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_D32_FLOAT;
+    dst.PlacedFootprint.Footprint.Width = (UINT)m_viewport.Width;
+    dst.PlacedFootprint.Footprint.Height = (UINT)m_viewport.Height;
+    dst.PlacedFootprint.Footprint.Depth = 1;
+    dst.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(dst.PlacedFootprint.Footprint.Width, sizeof(float));
+    D3D12_TEXTURE_COPY_LOCATION src = { m_depthBuffer.Get() };
+    m_directCommandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
 
     // Submit draw (etc) commands
     m_frameFenceValues[m_currentBuffer] = m_directCommandQueue->Execute(m_directCommandList.Get());
@@ -409,6 +443,16 @@ ComPtr<ID3D12Resource> Renderer::CreateUploadBuffer(size_t size)
     return ret;
 }
 
+ComPtr<ID3D12Resource> Renderer::CreateReadbackBuffer(size_t size)
+{
+    ComPtr<ID3D12Resource> ret;
+    CD3DX12_HEAP_PROPERTIES readbackHeapProps(D3D12_HEAP_TYPE_READBACK);
+    CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
+    m_device->CreateCommittedResource(&readbackHeapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+                                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&ret));
+    return ret;
+}
+
 void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
 {
     // Create destination buffer
@@ -436,7 +480,32 @@ void Renderer::WaitUploads(UINT64 fenceVal)
     m_copyCommandQueue->WaitFence(fenceVal);
 }
 
-Vec3f Renderer::Unproject(Vec3f screenCoords)
+float Renderer::ReadDepth(int x, int y)
+{
+    Assert(0 <= x && x < (int)m_viewport.Width);
+    Assert(0 <= y && y < (int)m_viewport.Height);
+
+    // Make sure we've finished reading back the last frame's depth buffer.
+    WaitCurrentFrame();
+
+    int pitch = GetTexturePitchBytes((int)m_viewport.Width, sizeof(float)) / sizeof(float);
+    int index = pitch * y + x;
+
+    // Map readback buffer and return the value.
+    const float* depthData = nullptr;
+    D3D12_RANGE readRange = { index * sizeof(float), (index + 1) * sizeof(float) };
+    m_depthReadbackBuffer->Map(0, &readRange, (void**)&depthData);
+    Assert(depthData);
+
+    float depth = depthData[index];
+
+    D3D12_RANGE writeRange = { 1, 0 };
+    m_depthReadbackBuffer->Unmap(0, &writeRange);
+
+    return depth;
+}
+
+Vec3f Renderer::Unproject(Vec3f screenCoords) const
 {
     Assert(0.f <= screenCoords.z && screenCoords.z <= 1.f);
 

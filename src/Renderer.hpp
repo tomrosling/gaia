@@ -47,11 +47,13 @@ public:
     void BeginUploads();
     ComPtr<ID3D12Resource> CreateResidentBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateUploadBuffer(size_t size);
+    ComPtr<ID3D12Resource> CreateReadbackBuffer(size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
     [[nodiscard]] UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);
 
-    Vec3f Unproject(Vec3f screenCoords);
+    float ReadDepth(int x, int y);
+    Vec3f Unproject(Vec3f screenCoords) const;
 
 private:
     bool CreateRootSignature();
@@ -69,6 +71,7 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
     ComPtr<ID3D12Resource> m_renderTargets[BackbufferCount];
     ComPtr<ID3D12Resource> m_depthBuffer;
+    ComPtr<ID3D12Resource> m_depthReadbackBuffer;
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[BackbufferCount];
     ComPtr<ID3D12CommandAllocator> m_copyCommandAllocator;
 
@@ -82,6 +85,7 @@ private:
     D3D12_RECT m_scissorRect = { 0, 0, LONG_MAX, LONG_MAX };
 
     UINT64 m_frameFenceValues[BackbufferCount] = {};
+    UINT64 m_depthReadbackFenceValue = 0;
     UINT m_currentBuffer = 0;
     UINT m_rtvDescriptorSize = 0;
     bool m_created = false;

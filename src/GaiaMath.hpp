@@ -61,11 +61,25 @@ inline T Square(T x)
     return x * x;
 }
 
-template <typename T>
+template<typename T>
 inline T Lerp(T a, T b, float t)
 {
     Assert(0.f <= t && t <= 1.f);
     return a + (T)(t * (b - a));
+}
+
+template<typename T>
+inline bool IsPow2(T n)
+{
+    Assert(n != 0);
+    return (n & (n - 1)) == 0;
+}
+
+template<typename T>
+inline T AlignPow2(T n, T align)
+{
+    Assert(IsPow2(align));
+    return (n + align) & ~(align - 1);
 }
 
 inline Vec3f Mat4fTransformVec3f(const Mat4f& m, const Vec3f& v)

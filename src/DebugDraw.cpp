@@ -33,6 +33,7 @@ void DebugDraw::Init(Renderer& renderer)
         CD3DX12_PIPELINE_STATE_STREAM_PS ps;
         CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
+        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL depthStencil;
     };
 
     D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
@@ -52,6 +53,7 @@ void DebugDraw::Init(Renderer& renderer)
     pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
     pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
     pipelineStateStream.rtvFormats = rtvFormats;
+    ((D3D12_DEPTH_STENCIL_DESC&)pipelineStateStream.depthStencil).DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 
     D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
     result = renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState));

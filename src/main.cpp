@@ -166,31 +166,32 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_PAINT:
     {
+        // Do mouse picking (before updating the camera matrix).
+        Vec2i mousePos = g_input.GetMousePos();
+        float depth = g_renderer.ReadDepth((int)mousePos.x, (int)mousePos.y);
+        if (depth < 1.f)
+        {
+            Mat4f oldCamMat = g_camera.GetMatrix();
+            Vec3f pickPointViewSpace = g_renderer.Unproject(Vec3f((Vec2f)mousePos, depth));
+            Vec3f pickPointWorldSpace = math::Mat4fTransformVec3f(oldCamMat, pickPointViewSpace);
+            DebugDraw::Instance().Point(pickPointWorldSpace, 0.5f, Vec4u8(0xff, 0xff, 0x00, 0xff));
+
+            if (g_input.IsCharKeyDown('R'))
+            {
+                g_terrain.RaiseAreaRounded(g_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), 3.f, 0.002f);
+            }
+
+            if (g_input.IsCharKeyDown('L'))
+            {
+                g_terrain.RaiseAreaRounded(g_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), 3.f, -0.002f);
+            }
+        }
+
         // Update the view matrix
         // TODO: Actually measure time (and put this all in a better place)!
         Mat4f camMat = g_camera.Update(g_input, 0.016f);
         Mat4f viewMat = math::affineInverse(camMat);
         g_renderer.SetViewMatrix(viewMat);
-
-        Vec3f mousePosFarClip = g_renderer.Unproject(Vec3f((Vec2f)g_input.GetMousePos(), 1.f));
-        Vec3f rayStart(camMat[3]);
-        Vec3f rayEnd = math::Mat4fTransformVec3f(camMat, mousePosFarClip);
-        float t = g_terrain.Raycast(rayStart, rayEnd);
-        if (t >= 0.f)
-        {
-            Vec3f hit = math::Lerp(rayStart, rayEnd, t);
-            DebugDraw::Instance().Point(hit, 0.5f, Vec4u8(0xff, 0xff, 0xff, 0xff));
-
-            if (g_input.IsCharKeyDown('R'))
-            {
-                g_terrain.RaiseAreaRounded(g_renderer, Vec2f(hit.x, hit.z), 3.f, 0.002f);
-            }
-
-            if (g_input.IsCharKeyDown('L'))
-            {
-                g_terrain.RaiseAreaRounded(g_renderer, Vec2f(hit.x, hit.z), 3.f, -0.002f);
-            }
-        }
 
         g_renderer.BeginFrame();
         g_terrain.Render(g_renderer);
