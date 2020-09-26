@@ -30,6 +30,8 @@ enum E
     VSSharedConstants,
     PSSharedConstants,
     PSConstantBuffer,
+    StaticSamplerState,
+    Texture,
     Count
 };
 }
@@ -60,9 +62,11 @@ public:
     ComPtr<ID3D12Resource> CreateReadbackBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateConstantBuffer(size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
+    [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath);
     [[nodiscard]] UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);
-    void BindConstantBuffer(int descIndex, RootParam::E slot);
+    void BindDescriptor(int descIndex, RootParam::E slot);
+    void BindTexture(int descIndex, RootParam::E slot);
 
     // Descriptors currently use a simple stack allocation scheme,
     // so Frees must be reverse ordered to the Allocates.
@@ -83,7 +87,7 @@ private:
     ComPtr<IDXGISwapChain3> m_swapChain;
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
-    ComPtr<ID3D12DescriptorHeap> m_cbvDescHeaps[BackbufferCount];
+    ComPtr<ID3D12DescriptorHeap> m_cbvDescHeaps[BackbufferCount]; // CRB/SRV/UAV descriptors.
     ComPtr<ID3D12Resource> m_renderTargets[BackbufferCount];
     ComPtr<ID3D12Resource> m_depthBuffer;
     ComPtr<ID3D12Resource> m_depthReadbackBuffer;

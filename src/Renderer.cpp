@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include <WICTextureLoader12.h>
 #include "CommandQueue.hpp"
 
 namespace gaia
@@ -7,6 +8,7 @@ namespace gaia
 static constexpr int TextureAlignment = 256;
 static constexpr int CBufferAlignment = 256;
 static constexpr int NumCBVDescriptors = 8;
+static constexpr int NumTextureDescriptors = 8;
 
 static int GetTexturePitchBytes(int width, int bytesPerTexel)
 {
@@ -111,7 +113,7 @@ bool Renderer::Create(HWND hwnd)
     if (FAILED(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvDescHeap))))
         return false;
 
-    // Create constant buffer descriptor heaps
+    // Create constant buffer/shader resource view/unordered access view descriptor heap.
     for (auto& cbvHeap : m_cbvDescHeaps)
     {
         D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
@@ -222,27 +224,59 @@ bool Renderer::CreateRootSignature()
     }
 
     // Create a descriptor table for pixel constant buffers
-    D3D12_DESCRIPTOR_RANGE1 descriptorRange = {};
-    descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-    descriptorRange.NumDescriptors = 1;
-    descriptorRange.BaseShaderRegister = 1;
-    descriptorRange.RegisterSpace = 0;
-    descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_DESCRIPTOR_RANGE1 cbvDescRange = {};
+    cbvDescRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    cbvDescRange.NumDescriptors = 1;
+    cbvDescRange.BaseShaderRegister = 1;
+    cbvDescRange.RegisterSpace = 0;
+    cbvDescRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    CD3DX12_ROOT_PARAMETER1 rootParams[3];
+    D3D12_DESCRIPTOR_RANGE1 srvDescRange = {};
+    srvDescRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvDescRange.NumDescriptors = 1;
+    srvDescRange.BaseShaderRegister = 0;
+    srvDescRange.RegisterSpace = 0;
+    srvDescRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    CD3DX12_ROOT_PARAMETER1 rootParams[RootParam::Count];
     rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
     rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL);
-    rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &descriptorRange, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::StaticSamplerState].InitAsConstantBufferView(1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_VERTEX);
+    rootParams[RootParam::Texture].InitAsDescriptorTable(1, &srvDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    // Static sampler for textures.
+    D3D12_STATIC_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.MipLODBias = 0;
+    samplerDesc.MaxAnisotropy = 0;
+    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    samplerDesc.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    samplerDesc.MinLOD = 0.0f;
+    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+    samplerDesc.ShaderRegister = 0;
+    samplerDesc.RegisterSpace = 0;
+    samplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
-    rootSignatureDesc.Init_1_1((UINT)std::size(rootParams), rootParams, 0, nullptr, rootSignatureFlags);
+    rootSignatureDesc.Init_1_1((UINT)std::size(rootParams), rootParams, 1, &samplerDesc, rootSignatureFlags);
 
     ComPtr<ID3DBlob> rootSigBlob;
-    ::D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &rootSigBlob, nullptr);
+    ComPtr<ID3DBlob> errBlob;
+    if (FAILED(::D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &rootSigBlob, &errBlob)))
+    {
+        DebugOut("Failed to create root signature: %s\n", errBlob->GetBufferPointer());
+        return false;
+    }
+
     if (FAILED(m_device->CreateRootSignature(0, rootSigBlob->GetBufferPointer(), rootSigBlob->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature))))
     {
         DebugOut("Failed to create root signature!\n");
@@ -293,7 +327,6 @@ void Renderer::BeginFrame()
     m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::PSSharedConstants, sizeof(PSSharedConstants) / 4, &pixelConstants, 0);
 
     // Set descriptor heaps for constant buffers.
-    // TODO: May need moving/modifying after adding texture support?
     ID3D12DescriptorHeap* descriptorHeaps[] = { m_cbvDescHeaps[m_currentBuffer].Get() };
     m_directCommandList->SetDescriptorHeaps(1, descriptorHeaps);
 }
@@ -397,7 +430,44 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
     subresourceData.pData = data;
     subresourceData.RowPitch = size;
     subresourceData.SlicePitch = size;
-    ::UpdateSubresources(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
+    ::UpdateSubresources<1>(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
+}
+
+int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath)
+{
+    // Load the file to a buffer and create the destination texture.
+    ID3D12Resource* rawTexture = nullptr;
+    std::unique_ptr<uint8[]> decodedData;
+    D3D12_SUBRESOURCE_DATA subresource = {};
+    HRESULT ret = DirectX::LoadWICTextureFromFile(m_device.Get(), filepath, &rawTexture, decodedData, subresource);
+    Assert(SUCCEEDED(ret));
+
+    if (SUCCEEDED(ret))
+    {
+        // Create intermediate buffer and fill it in.
+        // The resource will automatically transition via D3D12_RESOURCE_STATE_COMMON
+        // after the copy is complete, and will be usable as a shader resource.
+        intermediateBuffer = CreateUploadBuffer(subresource.SlicePitch);
+        ::UpdateSubresources<1>(m_copyCommandList.Get(), rawTexture, intermediateBuffer.Get(), 0, 0, 1, &subresource);
+
+        // Allocate an SRV.
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = DXGI_FORMAT_R16G16B16A16_UNORM; // TODO: This is hardcoded based on the textures I have.
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+
+        for (const ComPtr<ID3D12DescriptorHeap>& heap : m_cbvDescHeaps)
+        {
+            CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(heap->GetCPUDescriptorHandleForHeapStart(), m_nextCBVDescIndex * m_cbvDescriptorSize);
+            m_device->CreateShaderResourceView(rawTexture, &srvDesc, cpuHandle);
+        }
+
+        textureOut = rawTexture;
+        return m_nextCBVDescIndex++;
+    }
+
+    return -1;
 }
 
 UINT64 Renderer::EndUploads()
@@ -410,10 +480,10 @@ void Renderer::WaitUploads(UINT64 fenceVal)
     m_copyCommandQueue->WaitFence(fenceVal);
 }
 
-void Renderer::BindConstantBuffer(int descIndex, RootParam::E slot)
+void Renderer::BindDescriptor(int descIndex, RootParam::E slot)
 {
     Assert(descIndex < m_nextCBVDescIndex);
-    Assert(slot == RootParam::PSConstantBuffer); // For now.
+    Assert(slot == RootParam::PSConstantBuffer || slot == RootParam::Texture);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(m_cbvDescHeaps[m_currentBuffer]->GetGPUDescriptorHandleForHeapStart(), descIndex * m_cbvDescriptorSize);
     m_directCommandList->SetGraphicsRootDescriptorTable(slot, gpuHandle);

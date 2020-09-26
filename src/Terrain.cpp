@@ -71,6 +71,8 @@ void Terrain::Build(Renderer& renderer)
 
     renderer.BeginUploads();
 
+    m_texDescIndex = renderer.LoadTexture(m_grassTex, m_intermediateTexBuffer, L"aerial_grass_rock_diff_1k.png");
+
     // Note: rand() is not seeded so this is still deterministic, for now.
     m_seed = rand();
 
@@ -96,13 +98,15 @@ void Terrain::Render(Renderer& renderer)
     {
         renderer.WaitUploads(m_uploadFenceVal);
         m_uploadFenceVal = 0;
+        m_intermediateTexBuffer = nullptr;
     }
 
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
 
     // Set PSO/shader state
     commandList.SetPipelineState(m_pipelineState.Get());
-    renderer.BindConstantBuffer(m_cbufferDescIndex, RootParam::PSConstantBuffer);
+    renderer.BindDescriptor(m_cbufferDescIndex, RootParam::PSConstantBuffer);
+    renderer.BindDescriptor(m_texDescIndex, RootParam::Texture);
 
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -115,9 +119,10 @@ void Terrain::Render(Renderer& renderer)
     }
 
     // Render "water".
-    commandList.IASetVertexBuffers(0, 1, &m_waterVertexBufferView);
-    commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
-    commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
+    // TODO: Separate PSO
+    //commandList.IASetVertexBuffers(0, 1, &m_waterVertexBufferView);
+    //commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
+    //commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
 }
 
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)

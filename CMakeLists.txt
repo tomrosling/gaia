@@ -36,14 +36,19 @@ target_precompile_headers(gaia PRIVATE src/pch.hpp)
 
 set_property(TARGET gaia PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "\$(ProjectDir)/\$(Configuration)")
 
-# Create symlinks for shader source to allow hotloading.
 foreach(config ${CMAKE_CONFIGURATION_TYPES})
-  set(outputDir "${CMAKE_CURRENT_BINARY_DIR}/${config}")
-  execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${outputDir})
-  execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-    "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/TerrainPixel.hlsl" "${outputDir}/TerrainPixel.hlsl")
-  execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-    "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/TerrainVertex.hlsl" "${outputDir}/TerrainVertex.hlsl")
+    set(outputDir "${CMAKE_CURRENT_BINARY_DIR}/${config}")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${outputDir})
+    
+    # Symlink texture data to working directories.
+    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/textures/aerial_grass_rock_diff_1k.png" "${outputDir}/aerial_grass_rock_diff_1k.png")
+
+    # Create symlinks for shader source to allow hotloading.
+    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/TerrainPixel.hlsl" "${outputDir}/TerrainPixel.hlsl")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/TerrainVertex.hlsl" "${outputDir}/TerrainVertex.hlsl")
 endforeach()
 
 if(MSVC)

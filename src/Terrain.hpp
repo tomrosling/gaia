@@ -68,7 +68,11 @@ private:
     ComPtr<ID3D12PipelineState> m_pipelineState;
     ComPtr<ID3D12Resource> m_constantBuffers[BackbufferCount];
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
-    int m_cbufferDescIndex = 0;
+    int m_cbufferDescIndex = -1;
+    int m_texDescIndex = -1;
+
+    ComPtr<ID3D12Resource> m_grassTex;
+    ComPtr<ID3D12Resource> m_intermediateTexBuffer;
 };
 
 }

@@ -4,6 +4,9 @@ using namespace gaia;
 
 bool GaiaTestbedApp::Init(HWND hwnd)
 {
+    if (FAILED(::CoInitialize(nullptr)))
+        return false;
+
     if (!m_renderer.Create(hwnd))
         return false;
 

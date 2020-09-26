@@ -9,12 +9,15 @@ cbuffer TerrainPSConstantBuffer : register(b1)
     float HighlightRadiusSq;
 };
 
+Texture2D DiffuseTex : register(t0);
+SamplerState StaticSampler : register(s0);
+
 
 struct PixelShaderInput
 {
     float3 worldPos : POSITION;
     float3 nrm : NORMAL;
-    float4 col : COLOUR;
+    float4 col : COLOUR; // TODO: Unused!
 };
 
 float4 main(PixelShaderInput IN) : SV_Target
@@ -23,8 +26,9 @@ float4 main(PixelShaderInput IN) : SV_Target
 
     // Diffuse
     float ndotl = -dot(IN.nrm, LightDir);
-    float3 diffuse = ndotl * IN.col.rgb;
-    
+    float2 uv = IN.worldPos.xz * 0.1;
+    float3 diffuse = ndotl * DiffuseTex.Sample(StaticSampler, uv).rgb;
+
     // Specular: this is probably awful.
     //float3 r = reflect(LightDir, IN.nrm);
     //float3 viewDir = normalize(CamPos - IN.worldPos);
