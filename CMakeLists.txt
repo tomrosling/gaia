@@ -15,9 +15,23 @@ set_source_files_properties("data/shaders/TerrainPixel.hlsl" "data/Shaders/Debug
 set_source_files_properties(${shaders} PROPERTIES VS_SHADER_MODEL "5.1")
 source_group("Shaders" FILES ${shaders})
 
+# Add DirectXTex helpers.
+set(sources ${sources} "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.cpp")
+set(headers ${headers} "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.h")
+
 add_executable(gaia WIN32 ${sources} ${headers} ${shaders})
-target_link_libraries(gaia d3d12.lib dxgi.lib d3dcompiler.lib)
-target_include_directories(gaia PRIVATE src "dependencies/d3dx12" "dependencies/glm" "dependencies/stb")
+target_link_libraries(gaia 
+    d3d12.lib
+    dxgi.lib
+    d3dcompiler.lib
+    dxguid.lib # For DirectXTex
+)
+target_include_directories(gaia PRIVATE src 
+    "dependencies/d3dx12"
+    "dependencies/glm" 
+    "dependencies/stb" 
+    "dependencies/DirectXTex/WICTextureLoader"
+)
 target_precompile_headers(gaia PRIVATE src/pch.hpp)
 
 set_property(TARGET gaia PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "\$(ProjectDir)/\$(Configuration)")
