@@ -1,9 +1,9 @@
-cbuffer Constants : register(b0)
+cbuffer VSSharedConstants : register(b0)
 {
-    matrix ViewProjMat;
+    matrix viewProjMat;
 };
  
-struct VertexPosColor
+struct Vertex
 {
     float3 pos : POSITION;
     float3 nrm : NORMAL;
@@ -18,11 +18,11 @@ struct VertexShaderOutput
     float4 pos : SV_Position;
 };
  
-VertexShaderOutput main(VertexPosColor IN)
+VertexShaderOutput main(Vertex IN)
 {
     VertexShaderOutput OUT;
  
-    OUT.pos = mul(ViewProjMat, float4(IN.pos, 1.0));
+    OUT.pos = mul(viewProjMat, float4(IN.pos, 1.0));
 
     OUT.worldPos = IN.pos;
     OUT.nrm = IN.nrm;

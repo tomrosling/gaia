@@ -4,17 +4,21 @@
 namespace gaia
 {
 
+static constexpr int TextureAlignment = 256;
+static constexpr int CBufferAlignment = 256;
+static constexpr int NumCBVDescriptors = 8;
+
 static int GetTexturePitchBytes(int width, int bytesPerTexel)
 {
-    return math::AlignPow2(width * bytesPerTexel, 256);
+    return math::AlignPow2(width * bytesPerTexel, TextureAlignment);
 }
 
-struct VertexConstantBuffer
+struct VSSharedConstants
 {
-    Mat4f mvpMatrix;
+    Mat4f viewProjMat;
 };
 
-struct PixelConstantBuffer
+struct PSSharedConstants
 {
     Vec3f camPos;
 };
@@ -107,6 +111,19 @@ bool Renderer::Create(HWND hwnd)
     if (FAILED(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvDescHeap))))
         return false;
 
+    // Create constant buffer descriptor heaps
+    for (auto& cbvHeap : m_cbvDescHeaps)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
+        cbvHeapDesc.NumDescriptors = NumCBVDescriptors;
+        cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (FAILED(m_device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&cbvHeap))))
+            return false;
+    }
+
+    m_cbvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
     // Create command allocators
     for (auto& allocator : m_commandAllocators)
     {
@@ -194,50 +211,6 @@ bool Renderer::ResizeViewport(int width, int height)
     return true;
 }
 
-bool Renderer::LoadCompiledShaders()
-{
-    // Production: load precompiled shaders
-    ComPtr<ID3DBlob> vertexShader;
-    ComPtr<ID3DBlob> pixelShader;
-    if (FAILED(::D3DReadFileToBlob(L"vertex.cso", &vertexShader)))
-    {
-        DebugOut("Failed to load vertex shader file!");
-        return false;
-    }
-
-    if (FAILED(::D3DReadFileToBlob(L"pixel.cso", &pixelShader)))
-    {
-        DebugOut("Failed to load pixel shader file!");
-        return false;
-    }
-
-    return CreateDefaultPipelineState(vertexShader.Get(), pixelShader.Get());
-}
-
-bool Renderer::HotloadShaders()
-{
-    // Development: compile from files on the fly
-    ComPtr<ID3DBlob> vertexShader;
-    ComPtr<ID3DBlob> pixelShader;
-    ComPtr<ID3DBlob> error;
-    if (FAILED(::D3DCompileFromFile(L"vertex.hlsl", nullptr, nullptr, "main", "vs_5_1", 0, 0, &vertexShader, &error)))
-    {
-        DebugOut("Failed to load vertex shader:\n\n%s\n\n", error->GetBufferPointer());
-        return false;
-    }
-
-    if (FAILED(::D3DCompileFromFile(L"pixel.hlsl", nullptr, nullptr, "main", "ps_5_1", 0, 0, &pixelShader, &error)))
-    {
-        DebugOut("Failed to load pixel shader:\n\n%s\n\n", error->GetBufferPointer());
-        return false;
-    }
-
-    // Force a full CPU/GPU sync then recreate the PSO.
-    WaitCurrentFrame();
-
-    return CreateDefaultPipelineState(vertexShader.Get(), pixelShader.Get());
-}
-
 bool Renderer::CreateRootSignature()
 {
     // Check root signature 1.1 support...
@@ -248,10 +221,18 @@ bool Renderer::CreateRootSignature()
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
     }
 
-    // Create root signature
-    CD3DX12_ROOT_PARAMETER1 rootParams[2];
-    rootParams[0].InitAsConstants(sizeof(VertexConstantBuffer) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
-    rootParams[1].InitAsConstants(sizeof(PixelConstantBuffer) / 4, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+    // Create a descriptor table for pixel constant buffers
+    D3D12_DESCRIPTOR_RANGE1 descriptorRange = {};
+    descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    descriptorRange.NumDescriptors = 1;
+    descriptorRange.BaseShaderRegister = 1;
+    descriptorRange.RegisterSpace = 0;
+    descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    CD3DX12_ROOT_PARAMETER1 rootParams[3];
+    rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+    rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &descriptorRange, D3D12_SHADER_VISIBILITY_PIXEL);
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
@@ -265,64 +246,6 @@ bool Renderer::CreateRootSignature()
     if (FAILED(m_device->CreateRootSignature(0, rootSigBlob->GetBufferPointer(), rootSigBlob->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature))))
     {
         DebugOut("Failed to create root signature!\n");
-        return false;
-    }
-
-    return true;
-}
-
-bool Renderer::CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader)
-{
-    // Create PSO
-    struct PipelineStateStream
-    {
-        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE rootSignature;
-        CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT inputLayout;
-        CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY primType;
-        CD3DX12_PIPELINE_STATE_STREAM_VS vs;
-        CD3DX12_PIPELINE_STATE_STREAM_PS ps;
-        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
-        CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
-        CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend;
-        CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER rasterizer;
-    };
-
-    // Define vertex layout
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
-
-    D3D12_RT_FORMAT_ARRAY rtvFormats = {};
-    rtvFormats.NumRenderTargets = 1;
-    rtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-
-    PipelineStateStream pipelineStateStream;
-    pipelineStateStream.rootSignature = m_rootSignature.Get();
-    pipelineStateStream.inputLayout = { inputLayout, (UINT)std::size(inputLayout) };
-    pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader);
-    pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader);
-    pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
-    pipelineStateStream.rtvFormats = rtvFormats;
-    ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FrontCounterClockwise = true;
-
-    // Enable blending.
-    // TODO: Separate pass for transparent objects instead.
-    D3D12_RENDER_TARGET_BLEND_DESC& rtBlendDesc = ((CD3DX12_BLEND_DESC&)pipelineStateStream.blend).RenderTarget[0];
-    rtBlendDesc.BlendEnable = true;
-    rtBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-    rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
-    rtBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
-    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
-    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-
-    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
-    if (FAILED(m_device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
-    {
-        DebugOut("Failed to create pipeline state object!\n");
         return false;
     }
 
@@ -360,17 +283,19 @@ void Renderer::BeginFrame()
     m_directCommandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     m_directCommandList->RSSetViewports(1, &m_viewport);
     m_directCommandList->RSSetScissorRects(1, &m_scissorRect);
-
-    // Set PSO/shader state
-    m_directCommandList->SetPipelineState(m_pipelineState.Get());
     m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
     // Set global uniforms
-    Mat4f viewProjMat = m_projMat * m_viewMat;
-    m_directCommandList->SetGraphicsRoot32BitConstants(0, sizeof(Mat4f) / 4, &viewProjMat, offsetof(VertexConstantBuffer, mvpMatrix) / 4);
+    VSSharedConstants vertexConstants = { m_projMat * m_viewMat };
+    m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::VSSharedConstants, sizeof(VSSharedConstants) / 4, &vertexConstants, 0);
 
-    Vec3f camPos(math::affineInverse(m_viewMat)[3]);
-    m_directCommandList->SetGraphicsRoot32BitConstants(1, sizeof(Vec3f) / 4, &camPos, offsetof(PixelConstantBuffer, camPos) / 4);
+    PSSharedConstants pixelConstants = { Vec3f(math::affineInverse(m_viewMat)[3]) };
+    m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::PSSharedConstants, sizeof(PSSharedConstants) / 4, &pixelConstants, 0);
+
+    // Set descriptor heaps for constant buffers.
+    // TODO: May need moving/modifying after adding texture support?
+    ID3D12DescriptorHeap* descriptorHeaps[] = { m_cbvDescHeaps[m_currentBuffer].Get() };
+    m_directCommandList->SetDescriptorHeaps(1, descriptorHeaps);
 }
 
 void Renderer::EndFrame()
@@ -453,6 +378,11 @@ ComPtr<ID3D12Resource> Renderer::CreateReadbackBuffer(size_t size)
     return ret;
 }
 
+ComPtr<ID3D12Resource> Renderer::CreateConstantBuffer(size_t size)
+{
+    return CreateUploadBuffer(math::AlignPow2<size_t>(size, CBufferAlignment));
+}
+
 void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
 {
     // Create destination buffer
@@ -480,6 +410,39 @@ void Renderer::WaitUploads(UINT64 fenceVal)
     m_copyCommandQueue->WaitFence(fenceVal);
 }
 
+void Renderer::BindConstantBuffer(int descIndex, RootParam::E slot)
+{
+    Assert(descIndex < m_nextCBVDescIndex);
+    Assert(slot == RootParam::PSConstantBuffer); // For now.
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(m_cbvDescHeaps[m_currentBuffer]->GetGPUDescriptorHandleForHeapStart(), descIndex * m_cbvDescriptorSize);
+    m_directCommandList->SetGraphicsRootDescriptorTable(slot, gpuHandle);
+}
+
+int Renderer::AllocateConstantBufferViews(ID3D12Resource* (&buffers)[BackbufferCount], UINT size)
+{
+    Assert(m_nextCBVDescIndex < NumCBVDescriptors);
+    size = math::AlignPow2<UINT>(size, CBufferAlignment);
+
+    // Allocate descriptors for both frames.
+    for (int i = 0; i < BackbufferCount; ++i)
+    {
+        D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {};
+        desc.BufferLocation = buffers[i]->GetGPUVirtualAddress();
+        desc.SizeInBytes = size;
+        CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(m_cbvDescHeaps[i]->GetCPUDescriptorHandleForHeapStart(), m_nextCBVDescIndex * m_cbvDescriptorSize);
+        m_device->CreateConstantBufferView(&desc, cpuHandle);
+    }
+
+    return m_nextCBVDescIndex++;
+}
+
+void Renderer::FreeConstantBufferView(int index)
+{
+    Assert(index + 1 == m_nextCBVDescIndex);
+    --m_nextCBVDescIndex;
+}
+
 float Renderer::ReadDepth(int x, int y)
 {
     Assert(0 <= x && x < (int)m_viewport.Width);
@@ -499,7 +462,7 @@ float Renderer::ReadDepth(int x, int y)
 
     float depth = depthData[index];
 
-    D3D12_RANGE writeRange = { 1, 0 };
+    D3D12_RANGE writeRange = {};
     m_depthReadbackBuffer->Unmap(0, &writeRange);
 
     return depth;
@@ -523,9 +486,7 @@ Vec3f Renderer::Unproject(Vec3f screenCoords) const
     // Unproject.
     // Note: this is left in the nonlinear space used for projection, so
     // e.g. screenCoords.z == 0.5 will NOT give the half way point between 
-    // the near and far planes.
-    // It *should* match up to the values in the depth buffer, but
-    // TODO: double check this when depth buffer reads are implemented.
+    // the near and far planes. This matches up with values in the depth buffer.
     Vec4f viewCoords = math::inverse(m_projMat) * Vec4f(screenCoords, 1.f);
     return Vec3f(viewCoords) / viewCoords.w;
 }

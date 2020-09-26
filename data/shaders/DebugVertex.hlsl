@@ -1,4 +1,4 @@
-cbuffer Constants : register(b0)
+cbuffer VSSharedConstants : register(b0)
 {
     matrix ViewProjMat;
 };

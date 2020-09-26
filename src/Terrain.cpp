@@ -67,6 +67,8 @@ static Vec2i WorldPosToCell(Vec2f worldPosXZ, Vec2i tileCoords)
 
 void Terrain::Build(Renderer& renderer)
 {
+    CreateConstantBuffers(renderer);
+
     renderer.BeginUploads();
 
     // Note: rand() is not seeded so this is still deterministic, for now.
@@ -97,6 +99,11 @@ void Terrain::Render(Renderer& renderer)
     }
 
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
+
+    // Set PSO/shader state
+    commandList.SetPipelineState(m_pipelineState.Get());
+    renderer.BindConstantBuffer(m_cbufferDescIndex, RootParam::PSConstantBuffer);
+
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // Render the terrain itself.
@@ -190,7 +197,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
 
             // Map the intermediate buffer.
             Vertex* vertexData = nullptr;
-            D3D12_RANGE readRange = { 1, 0 };
+            D3D12_RANGE readRange = {};
             tile.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
             Assert(vertexData);
 
@@ -216,6 +223,128 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     }
 
     m_uploadFenceVal = renderer.EndUploads();
+}
+
+bool Terrain::LoadCompiledShaders(Renderer& renderer)
+{
+    // Production: load precompiled shaders
+    ComPtr<ID3DBlob> vertexShader;
+    ComPtr<ID3DBlob> pixelShader;
+    if (FAILED(::D3DReadFileToBlob(L"TerrainVertex.cso", &vertexShader)))
+    {
+        DebugOut("Failed to load vertex shader file!");
+        return false;
+    }
+
+    if (FAILED(::D3DReadFileToBlob(L"TerrainPixel.cso", &pixelShader)))
+    {
+        DebugOut("Failed to load pixel shader file!");
+        return false;
+    }
+
+    return CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get());
+}
+
+bool Terrain::HotloadShaders(Renderer& renderer)
+{
+    // Development: compile from files on the fly
+    ComPtr<ID3DBlob> vertexShader;
+    ComPtr<ID3DBlob> pixelShader;
+    ComPtr<ID3DBlob> error;
+    if (FAILED(::D3DCompileFromFile(L"TerrainVertex.hlsl", nullptr, nullptr, "main", "vs_5_1", 0, 0, &vertexShader, &error)))
+    {
+        DebugOut("Failed to load vertex shader:\n\n%s\n\n", error->GetBufferPointer());
+        return false;
+    }
+
+    if (FAILED(::D3DCompileFromFile(L"TerrainPixel.hlsl", nullptr, nullptr, "main", "ps_5_1", 0, 0, &pixelShader, &error)))
+    {
+        DebugOut("Failed to load pixel shader:\n\n%s\n\n", error->GetBufferPointer());
+        return false;
+    }
+
+    // Force a full CPU/GPU sync then recreate the PSO.
+    renderer.WaitCurrentFrame();
+
+    return CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get());
+}
+
+bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader)
+{
+    // Create PSO
+    struct PipelineStateStream
+    {
+        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE rootSignature;
+        CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT inputLayout;
+        CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY primType;
+        CD3DX12_PIPELINE_STATE_STREAM_VS vs;
+        CD3DX12_PIPELINE_STATE_STREAM_PS ps;
+        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
+        CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
+        CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend;
+        CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER rasterizer;
+    };
+
+    // Define vertex layout
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    D3D12_RT_FORMAT_ARRAY rtvFormats = {};
+    rtvFormats.NumRenderTargets = 1;
+    rtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    PipelineStateStream pipelineStateStream;
+    pipelineStateStream.rootSignature = &renderer.GetRootSignature();
+    pipelineStateStream.inputLayout = { inputLayout, (UINT)std::size(inputLayout) };
+    pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader);
+    pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader);
+    pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
+    pipelineStateStream.rtvFormats = rtvFormats;
+    ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FrontCounterClockwise = true;
+
+    // Enable blending.
+    // TODO: Separate pass for transparent objects instead.
+    D3D12_RENDER_TARGET_BLEND_DESC& rtBlendDesc = ((CD3DX12_BLEND_DESC&)pipelineStateStream.blend).RenderTarget[0];
+    rtBlendDesc.BlendEnable = true;
+    rtBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+    rtBlendDesc.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;
+    rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+    rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
+    if (FAILED(renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
+    {
+        DebugOut("Failed to create pipeline state object!\n");
+        return false;
+    }
+
+    return true;
+}
+
+void Terrain::CreateConstantBuffers(Renderer& renderer)
+{
+    // Create a constant buffer for each frame.
+    // Only upload buffers, because they're modified every frame.
+    for (int i = 0; i < BackbufferCount; ++i)
+    {
+        m_constantBuffers[i] = renderer.CreateConstantBuffer(sizeof(TerrainPSConstantBuffer));
+        Assert(m_constantBuffers[i]);
+
+        D3D12_RANGE readRange = {};
+        m_constantBuffers[i]->Map(0, &readRange, (void**)&m_mappedConstantBuffers[i]);
+        Assert(m_mappedConstantBuffers[i]);
+        memset(m_mappedConstantBuffers[i], 0, sizeof(TerrainPSConstantBuffer));
+    }
+
+    // Get offset into the descriptor heaps for the constant buffers.
+    ID3D12Resource* cbuffers[] = { m_constantBuffers[0].Get(), m_constantBuffers[1].Get() };
+    m_cbufferDescIndex = renderer.AllocateConstantBufferViews(cbuffers, sizeof(TerrainPSConstantBuffer));
 }
 
 void Terrain::BuildIndexBuffer(Renderer& renderer)

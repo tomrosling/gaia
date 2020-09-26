@@ -67,7 +67,7 @@ void DebugDraw::Init(Renderer& renderer)
 
     m_uploadBuffer = renderer.CreateUploadBuffer(BufferSize);
 
-    D3D12_RANGE readRange = { 1, 0 };
+    D3D12_RANGE readRange = {};
     m_uploadBuffer->Map(0, &readRange, (void**)&m_mappedVertexBuffer);
     Assert(m_mappedVertexBuffer);
 }

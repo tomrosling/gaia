@@ -23,6 +23,17 @@ struct Vertex
     Vec4u8 colour;
 };
 
+namespace RootParam
+{
+enum E
+{
+    VSSharedConstants,
+    PSSharedConstants,
+    PSConstantBuffer,
+    Count
+};
+}
+
 class Renderer
 {
 public:
@@ -31,11 +42,10 @@ public:
 
     bool Create(HWND hwnd);
     bool ResizeViewport(int width, int height);
-    bool LoadCompiledShaders();
-    bool HotloadShaders();
     void BeginFrame();
     void EndFrame();
     void WaitCurrentFrame();
+    int GetCurrentBuffer() const { return m_currentBuffer; }
 
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
 
@@ -48,18 +58,22 @@ public:
     ComPtr<ID3D12Resource> CreateResidentBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateUploadBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateReadbackBuffer(size_t size);
+    ComPtr<ID3D12Resource> CreateConstantBuffer(size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
     [[nodiscard]] UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);
+    void BindConstantBuffer(int descIndex, RootParam::E slot);
+
+    // Descriptors currently use a simple stack allocation scheme,
+    // so Frees must be reverse ordered to the Allocates.
+    [[nodiscard]] int AllocateConstantBufferViews(ID3D12Resource* (&buffers)[BackbufferCount], UINT size);
+    void FreeConstantBufferView(int index);
 
     float ReadDepth(int x, int y);
     Vec3f Unproject(Vec3f screenCoords) const;
 
 private:
     bool CreateRootSignature();
-    bool CreateDefaultPipelineState(ID3DBlob* vertexShader, ID3DBlob* pixelShader);
-
-    static const UINT BackbufferCount = 2;
 
     ComPtr<IDXGIFactory4> m_factory;
     ComPtr<IDXGIAdapter1> m_adapter;
@@ -69,14 +83,13 @@ private:
     ComPtr<IDXGISwapChain3> m_swapChain;
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
+    ComPtr<ID3D12DescriptorHeap> m_cbvDescHeaps[BackbufferCount];
     ComPtr<ID3D12Resource> m_renderTargets[BackbufferCount];
     ComPtr<ID3D12Resource> m_depthBuffer;
     ComPtr<ID3D12Resource> m_depthReadbackBuffer;
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[BackbufferCount];
     ComPtr<ID3D12CommandAllocator> m_copyCommandAllocator;
-
     ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
 
     std::unique_ptr<CommandQueue> m_directCommandQueue;
     std::unique_ptr<CommandQueue> m_copyCommandQueue;
@@ -86,8 +99,10 @@ private:
 
     UINT64 m_frameFenceValues[BackbufferCount] = {};
     UINT64 m_depthReadbackFenceValue = 0;
-    UINT m_currentBuffer = 0;
+    int m_nextCBVDescIndex = 0;
+    int m_currentBuffer = 0;
     UINT m_rtvDescriptorSize = 0;
+    UINT m_cbvDescriptorSize = 0;
     bool m_created = false;
 
     Mat4f m_viewMat = Mat4fIdentity;

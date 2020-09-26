@@ -1,7 +1,14 @@
-cbuffer Constants : register(b0)
+cbuffer PSSharedConstants : register(b0)
 {
     float3 CamPos;
 };
+
+cbuffer TerrainPSConstantBuffer : register(b1)
+{
+    float2 HighlightPosXZ;
+    float HighlightRadiusSq;
+};
+
 
 struct PixelShaderInput
 {
@@ -23,5 +30,10 @@ float4 main(PixelShaderInput IN) : SV_Target
     //float3 viewDir = normalize(CamPos - IN.worldPos);
     //float specular = pow(saturate(dot(r, viewDir)), 256.0);
 
-    return float4(0.9 * diffuse /*+ 0.1 * specular*/, IN.col.a);
+    // Selection highlight
+    float2 highlightOffset = IN.worldPos.xz - HighlightPosXZ;
+    float highlightDistSq = dot(highlightOffset, highlightOffset);
+    float3 highlight = float3(0.45, 0.45, 0.45) * smoothstep(0.0, 1.0, HighlightRadiusSq - highlightDistSq);
+
+    return float4(0.9 * diffuse /*+ 0.1 * specular*/ + highlight, IN.col.a);
 }

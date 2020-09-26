@@ -42,4 +42,7 @@ inline void DebugOut(const char* fmt, ...)
     va_end(args);
 }
 
+// TODO: Maybe encapsulate the double constant buffer to avoid other code having to deal with swap chains?
+static constexpr int BackbufferCount = 2;
+
 }

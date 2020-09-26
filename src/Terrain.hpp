@@ -27,11 +27,25 @@ public:
         D3D12_INDEX_BUFFER_VIEW view = {};
     };
 
+    struct TerrainPSConstantBuffer
+    {
+        Vec2f hightlightPosXZ;
+        float highlightRadiusSq;
+    };
+
     void Build(Renderer& renderer);
     void Render(Renderer& renderer);
     void RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy);
 
+    bool LoadCompiledShaders(Renderer& renderer);
+    bool HotloadShaders(Renderer& renderer);
+
+    void SetHighlightPos(Vec2f posXZ, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->hightlightPosXZ = posXZ; }
+    void SetHighlightRadius(float radius, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->highlightRadiusSq = math::Square(radius); }
+
 private:
+    bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
+    void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
     void BuildTile(Renderer& renderer, int tileX, int tileZ);
     void BuildWater(Renderer& renderer);
@@ -50,6 +64,11 @@ private:
     ComPtr<ID3D12Resource> m_waterIntermediateVertexBuffer;
     D3D12_VERTEX_BUFFER_VIEW m_waterVertexBufferView;
     IndexBuffer m_waterIndexBuffer;
+
+    ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12Resource> m_constantBuffers[BackbufferCount];
+    TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
+    int m_cbufferDescIndex = 0;
 };
 
 }
