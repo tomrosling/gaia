@@ -18,6 +18,7 @@ namespace gaia
 {
 
 using uchar = unsigned char;
+using uint = unsigned int;
 using int8 = int8_t;
 using int16 = int16_t;
 using int32 = int32_t;

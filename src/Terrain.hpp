@@ -70,6 +70,7 @@ private:
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
     int m_texDescIndex = -1;
+    bool m_texStateDirty = true;
 
     ComPtr<ID3D12Resource> m_grassTex;
     ComPtr<ID3D12Resource> m_intermediateTexBuffer;

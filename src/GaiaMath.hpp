@@ -82,6 +82,27 @@ inline T AlignPow2(T n, T align)
     return (n + align) & ~(align - 1);
 }
 
+// https://stackoverflow.com/a/24748637
+inline int ILog2(int32 n)
+{
+#define S(k)           \
+    if (n >= (1 << k)) \
+    {                  \
+        i += k;        \
+        n >>= k;       \
+    }
+
+    int i = -(n == 0);
+    S(16);
+    S(8);
+    S(4);
+    S(2);
+    S(1);
+    return i;
+
+#undef S
+}
+
 inline Vec3f Mat4fTransformVec3f(const Mat4f& m, const Vec3f& v)
 {
     return Vec3f(m * Vec4f(v, 1.f));

@@ -8,11 +8,18 @@ namespace gaia
 static constexpr int TextureAlignment = 256;
 static constexpr int CBufferAlignment = 256;
 static constexpr int NumCBVDescriptors = 8;
-static constexpr int NumTextureDescriptors = 8;
 
 static int GetTexturePitchBytes(int width, int bytesPerTexel)
 {
     return math::AlignPow2(width * bytesPerTexel, TextureAlignment);
+}
+
+static int CountMips(int width, int height)
+{
+    if (width == 0 || height == 0)
+        return 0;
+
+    return 1u + std::max(math::ILog2(width), math::ILog2(height));
 }
 
 struct VSSharedConstants
@@ -439,23 +446,29 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
     ID3D12Resource* rawTexture = nullptr;
     std::unique_ptr<uint8[]> decodedData;
     D3D12_SUBRESOURCE_DATA subresource = {};
-    HRESULT ret = DirectX::LoadWICTextureFromFile(m_device.Get(), filepath, &rawTexture, decodedData, subresource);
+    HRESULT ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_NONE, 
+        DirectX::WIC_LOADER_MIP_RESERVE, &rawTexture, decodedData, subresource);
     Assert(SUCCEEDED(ret));
 
     if (SUCCEEDED(ret))
     {
+        // Retrieve texture info. Would be nice if DirectXTex returned this, but alas.
+        const D3D12_RESOURCE_DESC& desc = rawTexture->GetDesc();
+
         // Create intermediate buffer and fill it in.
-        // The resource will automatically transition via D3D12_RESOURCE_STATE_COMMON
-        // after the copy is complete, and will be usable as a shader resource.
+        // The resource will automatically transition to D3D12_RESOURCE_STATE_COMMON
+        // when it is used on a direct command list, but for now, calling code should 
+        // then transition to D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE for performance.
+        // Could manage that internally to the renderer if we wanted.
         intermediateBuffer = CreateUploadBuffer(subresource.SlicePitch);
         ::UpdateSubresources<1>(m_copyCommandList.Get(), rawTexture, intermediateBuffer.Get(), 0, 0, 1, &subresource);
 
         // Allocate an SRV.
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Format = DXGI_FORMAT_R16G16B16A16_UNORM; // TODO: This is hardcoded based on the textures I have.
+        srvDesc.Format = desc.Format;
         srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = 1;
+        srvDesc.Texture2D.MipLevels = CountMips(desc.Width, desc.Height);
 
         for (const ComPtr<ID3D12DescriptorHeap>& heap : m_cbvDescHeaps)
         {

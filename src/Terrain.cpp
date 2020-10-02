@@ -103,6 +103,15 @@ void Terrain::Render(Renderer& renderer)
 
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
 
+    if (m_texStateDirty)
+    {
+        // After creating the texture, we should transition it to a pixel shader resource for efficiency.
+        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_grassTex.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        commandList.ResourceBarrier(1, &barrier);
+        m_texStateDirty = false;
+    }
+
     // Set PSO/shader state
     commandList.SetPipelineState(m_pipelineState.Get());
     renderer.BindDescriptor(m_cbufferDescIndex, RootParam::PSConstantBuffer);
