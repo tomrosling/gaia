@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 #include <WICTextureLoader12.h>
 #include "CommandQueue.hpp"
+#include "GenerateMips.hpp"
 
 namespace gaia
 {
@@ -8,6 +9,7 @@ namespace gaia
 static constexpr int TextureAlignment = 256;
 static constexpr int CBufferAlignment = 256;
 static constexpr int NumCBVDescriptors = 8;
+static constexpr int NumComputeDescriptors = 32;
 
 static int GetTexturePitchBytes(int width, int bytesPerTexel)
 {
@@ -84,6 +86,7 @@ bool Renderer::Create(HWND hwnd)
     // Create command queues
     m_directCommandQueue = std::make_unique<CommandQueue>(m_device.Get(), D3D12_COMMAND_LIST_TYPE_DIRECT);
     m_copyCommandQueue = std::make_unique<CommandQueue>(m_device.Get(), D3D12_COMMAND_LIST_TYPE_COPY);
+    m_computeCommandQueue = std::make_unique<CommandQueue>(m_device.Get(), D3D12_COMMAND_LIST_TYPE_COMPUTE);
 
     // Create swapchain
     ComPtr<IDXGISwapChain1> swapChain1;
@@ -131,6 +134,14 @@ bool Renderer::Create(HWND hwnd)
             return false;
     }
 
+    // Create descriptor heap for compute shaders.
+    D3D12_DESCRIPTOR_HEAP_DESC computeHeapDesc = {};
+    computeHeapDesc.NumDescriptors = NumComputeDescriptors;
+    computeHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    computeHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FAILED(m_device->CreateDescriptorHeap(&computeHeapDesc, IID_PPV_ARGS(&m_computeDescHeap))))
+        return false;
+
     m_cbvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     // Create command allocators
@@ -143,6 +154,9 @@ bool Renderer::Create(HWND hwnd)
     if (FAILED(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_copyCommandAllocator))))
         return false;
 
+    if (FAILED(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(&m_computeCommandAllocator))))
+        return false;
+
     // Create command lists
     if (FAILED(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_currentBuffer].Get(), nullptr, IID_PPV_ARGS(&m_directCommandList))))
         return false;
@@ -152,11 +166,19 @@ bool Renderer::Create(HWND hwnd)
         return false;
     m_copyCommandList->Close();
 
+    if (FAILED(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE, m_computeCommandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_computeCommandList))))
+        return false;
+    m_computeCommandList->Close();
+
     // NOTE: We don't actually create the render and depth targets here, assuming ResizeViewport will be called with an appropriate size.
 
     if (!CreateRootSignature())
         return false;
 
+    m_genMips = std::make_unique<gaia::GenerateMips>();
+    if (!m_genMips->Init(*this))
+        return false;
+    
     m_created = true;
     return true;
 }
@@ -223,12 +245,7 @@ bool Renderer::ResizeViewport(int width, int height)
 bool Renderer::CreateRootSignature()
 {
     // Check root signature 1.1 support...
-    D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
-    featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-    if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
-    {
-        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
-    }
+    D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = GetRootSignatureFeaturedData();
 
     // Create a descriptor table for pixel constant buffers
     D3D12_DESCRIPTOR_RANGE1 cbvDescRange = {};
@@ -254,7 +271,7 @@ bool Renderer::CreateRootSignature()
 
     // Static sampler for textures.
     D3D12_STATIC_SAMPLER_DESC samplerDesc = {};
-    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -443,10 +460,12 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
 int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath)
 {
     // Load the file to a buffer and create the destination texture.
+    // NOTE: Loaded with D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS under the assumption
+    //       that we will immediately want to generate mips!
     ID3D12Resource* rawTexture = nullptr;
     std::unique_ptr<uint8[]> decodedData;
     D3D12_SUBRESOURCE_DATA subresource = {};
-    HRESULT ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_NONE, 
+    HRESULT ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
         DirectX::WIC_LOADER_MIP_RESERVE, &rawTexture, decodedData, subresource);
     Assert(SUCCEEDED(ret));
 
@@ -493,6 +512,14 @@ void Renderer::WaitUploads(UINT64 fenceVal)
     m_copyCommandQueue->WaitFence(fenceVal);
 }
 
+void Renderer::GenerateMips(ID3D12Resource* texture)
+{
+    BeginCompute();
+    m_genMips->Compute(*this, texture);
+    UINT64 fenceVal = EndCompute();
+    WaitCompute(fenceVal);
+}
+
 void Renderer::BindDescriptor(int descIndex, RootParam::E slot)
 {
     Assert(descIndex < m_nextCBVDescIndex);
@@ -500,6 +527,35 @@ void Renderer::BindDescriptor(int descIndex, RootParam::E slot)
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(m_cbvDescHeaps[m_currentBuffer]->GetGPUDescriptorHandleForHeapStart(), descIndex * m_cbvDescriptorSize);
     m_directCommandList->SetGraphicsRootDescriptorTable(slot, gpuHandle);
+}
+
+void Renderer::BindComputeDescriptor(int descIndex, int slot)
+{
+    Assert(descIndex < m_nextComputeDescIndex);
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(m_computeDescHeap->GetGPUDescriptorHandleForHeapStart(), descIndex * m_cbvDescriptorSize);
+    m_computeCommandList->SetComputeRootDescriptorTable(slot, gpuHandle);
+}
+
+void Renderer::BeginCompute()
+{
+    // Reset command list.
+    m_computeCommandAllocator->Reset();
+    m_computeCommandList->Reset(m_computeCommandAllocator.Get(), nullptr);
+
+    // Set descriptor heap.
+    ID3D12DescriptorHeap* descriptorHeaps[] = { m_computeDescHeap.Get() };
+    m_computeCommandList->SetDescriptorHeaps(1, descriptorHeaps);
+}
+
+UINT64 Renderer::EndCompute()
+{
+    return m_computeCommandQueue->Execute(m_computeCommandList.Get());
+}
+
+void Renderer::WaitCompute(UINT64 fenceVal)
+{
+    m_computeCommandQueue->WaitFence(fenceVal);
 }
 
 int Renderer::AllocateConstantBufferViews(ID3D12Resource* (&buffers)[BackbufferCount], UINT size)
@@ -524,6 +580,39 @@ void Renderer::FreeConstantBufferView(int index)
 {
     Assert(index + 1 == m_nextCBVDescIndex);
     --m_nextCBVDescIndex;
+}
+
+int Renderer::AllocateComputeUAV(ID3D12Resource* targetResource, const D3D12_UNORDERED_ACCESS_VIEW_DESC& desc)
+{
+    Assert(m_nextComputeDescIndex < NumComputeDescriptors);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(m_computeDescHeap->GetCPUDescriptorHandleForHeapStart(), m_nextComputeDescIndex * m_cbvDescriptorSize);
+    m_device->CreateUnorderedAccessView(targetResource, nullptr, &desc, cpuHandle);
+    return m_nextComputeDescIndex++;
+}
+
+int Renderer::AllocateComputeSRV(ID3D12Resource* targetResource, const D3D12_SHADER_RESOURCE_VIEW_DESC& desc)
+{
+    Assert(m_nextComputeDescIndex < NumComputeDescriptors);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(m_computeDescHeap->GetCPUDescriptorHandleForHeapStart(), m_nextComputeDescIndex * m_cbvDescriptorSize);
+    m_device->CreateShaderResourceView(targetResource, &desc, cpuHandle);
+    return m_nextComputeDescIndex++;
+}
+
+void Renderer::FreeComputeDesc(int index)
+{
+    Assert(index + 1 == m_nextComputeDescIndex);
+    --m_nextComputeDescIndex;
+}
+
+D3D12_FEATURE_DATA_ROOT_SIGNATURE Renderer::GetRootSignatureFeaturedData() const
+{
+    D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+    featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+    {
+        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+    }
+    return featureData;
 }
 
 float Renderer::ReadDepth(int x, int y)

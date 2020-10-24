@@ -89,6 +89,12 @@ void Terrain::Build(Renderer& renderer)
     BuildWater(renderer);
 
     m_uploadFenceVal = renderer.EndUploads();
+
+    // Must be done after texture upload has completed!
+    // TODO: Expose m_d3d12CommandQueue->Wait(other.m_d3d12Fence.Get(), other.m_FenceValue)
+    //       via some kind of CommandQueue::GPUWait() interface!
+    renderer.WaitUploads(m_uploadFenceVal);
+    renderer.GenerateMips(m_grassTex.Get());
 }
 
 void Terrain::Render(Renderer& renderer)
@@ -246,13 +252,13 @@ bool Terrain::LoadCompiledShaders(Renderer& renderer)
     ComPtr<ID3DBlob> pixelShader;
     if (FAILED(::D3DReadFileToBlob(L"TerrainVertex.cso", &vertexShader)))
     {
-        DebugOut("Failed to load vertex shader file!");
+        DebugOut("Failed to load TerrainVertex shader!\n");
         return false;
     }
 
     if (FAILED(::D3DReadFileToBlob(L"TerrainPixel.cso", &pixelShader)))
     {
-        DebugOut("Failed to load pixel shader file!");
+        DebugOut("Failed to load TerrainPixel shader!\n");
         return false;
     }
 

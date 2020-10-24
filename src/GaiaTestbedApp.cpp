@@ -180,8 +180,7 @@ void GaiaTestbedApp::Update(float dt)
         {
             m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, 0.002f);
         }
-
-        if (m_input.IsMouseButtonDown(MouseButton::Right))
+        else if (m_input.IsMouseButtonDown(MouseButton::Right))
         {
             m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, -0.002f);
         }

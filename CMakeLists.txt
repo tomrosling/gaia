@@ -12,6 +12,7 @@ file(GLOB headers "src/*.hpp")
 file(GLOB shaders "data/shaders/*.hlsl")
 set_source_files_properties("data/shaders/TerrainVertex.hlsl" "data/shaders/DebugVertex.hlsl" PROPERTIES VS_SHADER_TYPE "Vertex")
 set_source_files_properties("data/shaders/TerrainPixel.hlsl" "data/Shaders/DebugPixel.hlsl" PROPERTIES VS_SHADER_TYPE "Pixel")
+set_source_files_properties("data/shaders/GenerateMips.hlsl" PROPERTIES VS_SHADER_TYPE "Compute")
 set_source_files_properties(${shaders} PROPERTIES VS_SHADER_MODEL "5.1")
 source_group("Shaders" FILES ${shaders})
 

@@ -9,8 +9,8 @@ public:
     CommandQueue(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type);
 
     ID3D12CommandQueue* GetCommandQueue() { return m_commandQueue.Get(); }
-    UINT64 Execute(ID3D12GraphicsCommandList2* commandList);
-    UINT64 SignalFence();
+    [[nodiscard]] UINT64 Execute(ID3D12GraphicsCommandList2* commandList);
+    [[nodiscard]] UINT64 SignalFence();
     void WaitFence(UINT64 value);
     void Flush();
 
