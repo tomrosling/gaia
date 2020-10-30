@@ -44,6 +44,8 @@ foreach(config ${CMAKE_CONFIGURATION_TYPES})
     # Symlink texture data to working directories.
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
       "${CMAKE_CURRENT_SOURCE_DIR}/data/textures/aerial_grass_rock_diff_1k.png" "${outputDir}/aerial_grass_rock_diff_1k.png")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/textures/ground_grey_diff_1k.png" "${outputDir}/ground_grey_diff_1k.png")
 
     # Create symlinks for shader source to allow hotloading.
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink

@@ -9,7 +9,8 @@ cbuffer TerrainPSConstantBuffer : register(b1)
     float HighlightRadiusSq;
 };
 
-Texture2D DiffuseTex : register(t0);
+Texture2D DiffuseTex0 : register(t0);
+Texture2D DiffuseTex1 : register(t1);
 SamplerState StaticSampler : register(s0);
 
 
@@ -26,8 +27,11 @@ float4 main(PixelShaderInput IN) : SV_Target
 
     // Diffuse
     float ndotl = -dot(IN.nrm, LightDir);
-    float2 uv = IN.worldPos.xz * 0.1;
-    float3 diffuse = ndotl * DiffuseTex.Sample(StaticSampler, uv).rgb;
+    float2 uv = IN.worldPos.xz * 0.15;
+    float3 grass = DiffuseTex0.Sample(StaticSampler, uv).rgb;
+    float3 rocks = DiffuseTex1.Sample(StaticSampler, uv).rgb;
+    float3 diffuse = lerp(grass, rocks, saturate(IN.worldPos.y));
+    diffuse *= ndotl;
 
     // Specular: this is probably awful.
     //float3 r = reflect(LightDir, IN.nrm);

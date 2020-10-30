@@ -71,7 +71,8 @@ void Terrain::Build(Renderer& renderer)
 
     renderer.BeginUploads();
 
-    m_texDescIndex = renderer.LoadTexture(m_grassTex, m_intermediateTexBuffer, L"aerial_grass_rock_diff_1k.png");
+    m_texDescIndices[0] = renderer.LoadTexture(m_textures[0], m_intermediateTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
+    m_texDescIndices[1] = renderer.LoadTexture(m_textures[1], m_intermediateTexBuffers[1], L"ground_grey_diff_1k.png");
 
     // Note: rand() is not seeded so this is still deterministic, for now.
     m_seed = rand();
@@ -94,7 +95,10 @@ void Terrain::Build(Renderer& renderer)
     // TODO: Expose m_d3d12CommandQueue->Wait(other.m_d3d12Fence.Get(), other.m_FenceValue)
     //       via some kind of CommandQueue::GPUWait() interface!
     renderer.WaitUploads(m_uploadFenceVal);
-    renderer.GenerateMips(m_grassTex.Get());
+    m_intermediateTexBuffers[0] = nullptr;
+    m_intermediateTexBuffers[1] = nullptr;
+    renderer.GenerateMips(m_textures[0].Get());
+    renderer.GenerateMips(m_textures[1].Get());
 }
 
 void Terrain::Render(Renderer& renderer)
@@ -104,24 +108,28 @@ void Terrain::Render(Renderer& renderer)
     {
         renderer.WaitUploads(m_uploadFenceVal);
         m_uploadFenceVal = 0;
-        m_intermediateTexBuffer = nullptr;
     }
 
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
 
     if (m_texStateDirty)
     {
-        // After creating the texture, we should transition it to a pixel shader resource for efficiency.
-        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_grassTex.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        commandList.ResourceBarrier(1, &barrier);
+        for (ComPtr<ID3D12Resource>& tex : m_textures)
+        {
+            // After creating the texture, we should transition it to a pixel shader resource for efficiency.
+            CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+                tex.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            commandList.ResourceBarrier(1, &barrier);
+        }
+
         m_texStateDirty = false;
     }
 
     // Set PSO/shader state
     commandList.SetPipelineState(m_pipelineState.Get());
     renderer.BindDescriptor(m_cbufferDescIndex, RootParam::PSConstantBuffer);
-    renderer.BindDescriptor(m_texDescIndex, RootParam::Texture);
+    renderer.BindDescriptor(m_texDescIndices[0], RootParam::Texture0);
+    renderer.BindDescriptor(m_texDescIndices[1], RootParam::Texture1);
 
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 

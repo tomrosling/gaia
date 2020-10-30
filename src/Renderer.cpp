@@ -255,19 +255,23 @@ bool Renderer::CreateRootSignature()
     cbvDescRange.RegisterSpace = 0;
     cbvDescRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_DESCRIPTOR_RANGE1 srvDescRange = {};
-    srvDescRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srvDescRange.NumDescriptors = 1;
-    srvDescRange.BaseShaderRegister = 0;
-    srvDescRange.RegisterSpace = 0;
-    srvDescRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_DESCRIPTOR_RANGE1 srvDescRange0 = {};
+    srvDescRange0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvDescRange0.NumDescriptors = 1;
+    srvDescRange0.BaseShaderRegister = 0;
+    srvDescRange0.RegisterSpace = 0;
+    srvDescRange0.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_DESCRIPTOR_RANGE1 srvDescRange1 = srvDescRange0;
+    srvDescRange1.BaseShaderRegister = 1;
 
     CD3DX12_ROOT_PARAMETER1 rootParams[RootParam::Count];
     rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
     rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::StaticSamplerState].InitAsConstantBufferView(1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_VERTEX);
-    rootParams[RootParam::Texture].InitAsDescriptorTable(1, &srvDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::Texture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
 
     // Static sampler for textures.
     D3D12_STATIC_SAMPLER_DESC samplerDesc = {};
@@ -523,7 +527,7 @@ void Renderer::GenerateMips(ID3D12Resource* texture)
 void Renderer::BindDescriptor(int descIndex, RootParam::E slot)
 {
     Assert(descIndex < m_nextCBVDescIndex);
-    Assert(slot == RootParam::PSConstantBuffer || slot == RootParam::Texture);
+    Assert(slot == RootParam::PSConstantBuffer || slot == RootParam::Texture0 || slot == RootParam::Texture1);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(m_cbvDescHeaps[m_currentBuffer]->GetGPUDescriptorHandleForHeapStart(), descIndex * m_cbvDescriptorSize);
     m_directCommandList->SetGraphicsRootDescriptorTable(slot, gpuHandle);
