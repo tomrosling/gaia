@@ -136,6 +136,12 @@ bool GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             m_renderer.WaitCurrentFrame();
             m_terrain.Build(m_renderer);
         }
+
+        if (wParam == 'T')
+        {
+            m_terrainEditEnabled ^= 1;
+        }
+
         return true;
     }
 
@@ -165,35 +171,39 @@ int GaiaTestbedApp::Run()
 
 void GaiaTestbedApp::Update(float dt)
 {
-    // Do mouse picking (before updating the camera matrix).
-    Vec2i mousePos = m_input.GetMousePos();
-    float depth = m_renderer.ReadDepth((int)mousePos.x, (int)mousePos.y);
     int currentBuffer = m_renderer.GetCurrentBuffer();
-    constexpr float modifyRadius = 3.f;
-    if (depth < 1.f)
+    float highlightRadius = 0.f;
+    Vec2f highlightPos = Vec2fZero;
+
+    if (m_terrainEditEnabled)
     {
-        Mat4f oldCamMat = m_camera.GetMatrix();
-        Vec3f pickPointViewSpace = m_renderer.Unproject(Vec3f((Vec2f)mousePos, depth));
-        Vec3f pickPointWorldSpace = math::Mat4fTransformVec3f(oldCamMat, pickPointViewSpace);
-
-        if (m_input.IsMouseButtonDown(MouseButton::Left))
+        // Do mouse picking (before updating the camera matrix).
+        Vec2i mousePos = m_input.GetMousePos();
+        float depth = m_renderer.ReadDepth((int)mousePos.x, (int)mousePos.y);
+        constexpr float modifyRadius = 3.f;
+        if (depth < 1.f)
         {
-            m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, 0.002f);
-        }
-        else if (m_input.IsMouseButtonDown(MouseButton::Right))
-        {
-            m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, -0.002f);
-        }
+            Mat4f oldCamMat = m_camera.GetMatrix();
+            Vec3f pickPointViewSpace = m_renderer.Unproject(Vec3f((Vec2f)mousePos, depth));
+            Vec3f pickPointWorldSpace = math::Mat4fTransformVec3f(oldCamMat, pickPointViewSpace);
 
-        m_terrain.SetHighlightRadius(modifyRadius, currentBuffer);
-        m_terrain.SetHighlightPos(Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), currentBuffer);
-    }
-    else 
-    {
-        m_terrain.SetHighlightRadius(0.f, currentBuffer);
-        m_terrain.SetHighlightPos(Vec2fZero, currentBuffer);
+            if (m_input.IsMouseButtonDown(MouseButton::Left))
+            {
+                m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, 0.002f);
+            }
+            else if (m_input.IsMouseButtonDown(MouseButton::Right))
+            {
+                m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, -0.002f);
+            }
+
+            highlightRadius = modifyRadius;
+            highlightPos = Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z);
+        }
     }
 
+    m_terrain.SetHighlightRadius(highlightRadius, currentBuffer);
+    m_terrain.SetHighlightPos(highlightPos, currentBuffer);
+    
     // Update the view matrix
     Mat4f camMat = m_camera.Update(m_input, dt);
     Mat4f viewMat = math::affineInverse(camMat);
