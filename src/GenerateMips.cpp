@@ -99,13 +99,6 @@ void GenerateMips::Compute(Renderer& renderer, ID3D12Resource* texture)
         
         D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(texture);
         commandList.ResourceBarrier(1, &barrier);
-
-        // TODO! Need to free after compute ends :(
-        //for (int mip = 4; mip--; )
-        //{
-        //    renderer.FreeComputeDesc(uavDescIndices[mip]);
-        //}
-        //renderer.FreeComputeDesc(srvDescIndex);
     }
 }
 

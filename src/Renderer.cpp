@@ -539,6 +539,8 @@ void Renderer::BindComputeDescriptor(int descIndex, int slot)
 
 void Renderer::BeginCompute()
 {
+    Assert(m_nextComputeDescIndex == 0); // Another compute already in progress?
+
     // Reset command list.
     m_computeCommandAllocator->Reset();
     m_computeCommandList->Reset(m_computeCommandAllocator.Get(), nullptr);
@@ -556,6 +558,9 @@ UINT64 Renderer::EndCompute()
 void Renderer::WaitCompute(UINT64 fenceVal)
 {
     m_computeCommandQueue->WaitFence(fenceVal);
+
+    // "Free" allocated compute descriptors.
+    m_nextComputeDescIndex = 0;
 }
 
 int Renderer::AllocateConstantBufferViews(ID3D12Resource* (&buffers)[BackbufferCount], UINT size)
@@ -596,12 +601,6 @@ int Renderer::AllocateComputeSRV(ID3D12Resource* targetResource, const D3D12_SHA
     CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(m_computeDescHeap->GetCPUDescriptorHandleForHeapStart(), m_nextComputeDescIndex * m_cbvDescriptorSize);
     m_device->CreateShaderResourceView(targetResource, &desc, cpuHandle);
     return m_nextComputeDescIndex++;
-}
-
-void Renderer::FreeComputeDesc(int index)
-{
-    Assert(index + 1 == m_nextComputeDescIndex);
-    --m_nextComputeDescIndex;
 }
 
 D3D12_FEATURE_DATA_ROOT_SIGNATURE Renderer::GetRootSignatureFeaturedData() const

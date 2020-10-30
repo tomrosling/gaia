@@ -83,10 +83,10 @@ public:
     [[nodiscard]] int AllocateConstantBufferViews(ID3D12Resource* (&buffers)[BackbufferCount], UINT size);
     void FreeConstantBufferView(int index);
 
+    // Compute descriptors are kept until the compute operation completes, then discarded.
     // TODO: Tidy the whole descriptor heap stuff up.
     [[nodiscard]] int AllocateComputeUAV(ID3D12Resource* targetResource, const D3D12_UNORDERED_ACCESS_VIEW_DESC& desc);
     [[nodiscard]] int AllocateComputeSRV(ID3D12Resource* targetResource, const D3D12_SHADER_RESOURCE_VIEW_DESC& desc);
-    void FreeComputeDesc(int index);
 
     D3D12_FEATURE_DATA_ROOT_SIGNATURE GetRootSignatureFeaturedData() const;
 
