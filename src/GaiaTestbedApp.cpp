@@ -165,6 +165,9 @@ int GaiaTestbedApp::Run()
         Render();
     }
 
+    // Wait for GPU operations to finish before shutting down.
+    m_renderer.WaitCurrentFrame();
+
     // Return the WM_QUIT return code.
     return (int)msg.wParam;
 }
