@@ -18,7 +18,6 @@ struct PixelShaderInput
 {
     float3 worldPos : POSITION;
     float3 nrm : NORMAL;
-    float4 col : COLOUR; // TODO: Unused!
 };
 
 float4 main(PixelShaderInput IN) : SV_Target
@@ -30,7 +29,7 @@ float4 main(PixelShaderInput IN) : SV_Target
     float2 uv = IN.worldPos.xz * 0.15;
     float3 grass = DiffuseTex0.Sample(StaticSampler, uv).rgb;
     float3 rocks = DiffuseTex1.Sample(StaticSampler, uv).rgb;
-    float3 diffuse = lerp(grass, rocks, saturate(IN.worldPos.y));
+    float3 diffuse = lerp(grass, rocks, saturate(IN.worldPos.y - 0.3));
     diffuse *= ndotl;
 
     // Specular: this is probably awful.
@@ -43,5 +42,5 @@ float4 main(PixelShaderInput IN) : SV_Target
     float highlightDistSq = dot(highlightOffset, highlightOffset);
     float3 highlight = float3(0.45, 0.45, 0.45) * smoothstep(0.0, 1.0, HighlightRadiusSq - highlightDistSq);
 
-    return float4(0.9 * diffuse /*+ 0.1 * specular*/ + highlight, IN.col.a);
+    return float4(0.9 * diffuse /*+ 0.1 * specular*/ + highlight, 1.0);
 }

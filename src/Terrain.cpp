@@ -7,6 +7,19 @@
 namespace gaia
 {
 
+struct TerrainVertex
+{
+    Vec3f position;
+    Vec3f normal;
+};
+
+struct WaterVertex
+{
+    Vec3f position;
+    Vec3f normal;
+    Vec4u8 colour;
+};
+
 static constexpr int NumTilesX = 2;
 static constexpr int NumTilesZ = 2;
 static constexpr int CellsPerTileX = 255;
@@ -142,10 +155,10 @@ void Terrain::Render(Renderer& renderer)
     }
 
     // Render "water".
-    // TODO: Separate PSO
-    //commandList.IASetVertexBuffers(0, 1, &m_waterVertexBufferView);
-    //commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
-    //commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
+    commandList.SetPipelineState(m_waterPipelineState.Get());
+    commandList.IASetVertexBuffers(0, 1, &m_waterVertexBufferView);
+    commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
+    commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
 }
 
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
@@ -224,7 +237,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             tile.dirtyMax = maxVert;
 
             // Map the intermediate buffer.
-            Vertex* vertexData = nullptr;
+            TerrainVertex* vertexData = nullptr;
             D3D12_RANGE readRange = {};
             tile.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
             Assert(vertexData);
@@ -239,8 +252,8 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             }
 
             D3D12_RANGE writeRange = {
-                VertexIndex(dirtyUnionMin.x, dirtyUnionMin.y) * sizeof(Vertex),
-                (VertexIndex(dirtyUnionMax.x, dirtyUnionMax.y) + 1) * sizeof(Vertex)
+                VertexIndex(dirtyUnionMin.x, dirtyUnionMin.y) * sizeof(TerrainVertex),
+                (VertexIndex(dirtyUnionMax.x, dirtyUnionMax.y) + 1) * sizeof(TerrainVertex)
             };
             tile.intermediateBuffer->Unmap(0, &writeRange);
 
@@ -270,7 +283,26 @@ bool Terrain::LoadCompiledShaders(Renderer& renderer)
         return false;
     }
 
-    return CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get());
+    if (!CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get()))
+        return false;
+
+    
+    // Load water shaders
+    ComPtr<ID3DBlob> waterVertexShader;
+    ComPtr<ID3DBlob> waterPixelShader;
+    if (FAILED(::D3DReadFileToBlob(L"WaterVertex.cso", &waterVertexShader)))
+    {
+        DebugOut("Failed to load TerrainVertex shader!\n");
+        return false;
+    }
+
+    if (FAILED(::D3DReadFileToBlob(L"WaterPixel.cso", &waterPixelShader)))
+    {
+        DebugOut("Failed to load TerrainPixel shader!\n");
+        return false;
+    }
+
+    return CreateWaterPipelineState(renderer, waterVertexShader.Get(), waterPixelShader.Get());
 }
 
 bool Terrain::HotloadShaders(Renderer& renderer)
@@ -294,7 +326,24 @@ bool Terrain::HotloadShaders(Renderer& renderer)
     // Force a full CPU/GPU sync then recreate the PSO.
     renderer.WaitCurrentFrame();
 
-    return CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get());
+    if (!CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get()))
+        return false;
+
+    ComPtr<ID3DBlob> waterVertexShader;
+    ComPtr<ID3DBlob> waterPixelShader;
+    if (FAILED(::D3DCompileFromFile(L"WaterVertex.hlsl", nullptr, nullptr, "main", "vs_5_1", 0, 0, &waterVertexShader, &error)))
+    {
+        DebugOut("Failed to load vertex shader:\n\n%s\n\n", error->GetBufferPointer());
+        return false;
+    }
+
+    if (FAILED(::D3DCompileFromFile(L"WaterPixel.hlsl", nullptr, nullptr, "main", "ps_5_1", 0, 0, &waterPixelShader, &error)))
+    {
+        DebugOut("Failed to load pixel shader:\n\n%s\n\n", error->GetBufferPointer());
+        return false;
+    }
+
+    return CreateWaterPipelineState(renderer, waterVertexShader.Get(), waterPixelShader.Get());
 }
 
 bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader)
@@ -334,8 +383,54 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
     pipelineStateStream.rtvFormats = rtvFormats;
     ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FrontCounterClockwise = true;
 
+    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
+    if (FAILED(renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
+    {
+        DebugOut("Failed to create pipeline state object!\n");
+        return false;
+    }
+
+    return true;
+}
+
+bool Terrain::CreateWaterPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader)
+{
+    // Create PSO
+    struct PipelineStateStream
+    {
+        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE rootSignature;
+        CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT inputLayout;
+        CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY primType;
+        CD3DX12_PIPELINE_STATE_STREAM_VS vs;
+        CD3DX12_PIPELINE_STATE_STREAM_PS ps;
+        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
+        CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
+        CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend;
+        CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER rasterizer;
+    };
+
+    // Define vertex layout
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    D3D12_RT_FORMAT_ARRAY rtvFormats = {};
+    rtvFormats.NumRenderTargets = 1;
+    rtvFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    PipelineStateStream pipelineStateStream;
+    pipelineStateStream.rootSignature = &renderer.GetRootSignature();
+    pipelineStateStream.inputLayout = { inputLayout, (UINT)std::size(inputLayout) };
+    pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader);
+    pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader);
+    pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
+    pipelineStateStream.rtvFormats = rtvFormats;
+    ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FrontCounterClockwise = true;
+
     // Enable blending.
-    // TODO: Separate pass for transparent objects instead.
     D3D12_RENDER_TARGET_BLEND_DESC& rtBlendDesc = ((CD3DX12_BLEND_DESC&)pipelineStateStream.blend).RenderTarget[0];
     rtBlendDesc.BlendEnable = true;
     rtBlendDesc.SrcBlend = D3D12_BLEND_SRC_ALPHA;
@@ -346,7 +441,7 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
     rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 
     D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
-    if (FAILED(renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
+    if (FAILED(renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_waterPipelineState))))
     {
         DebugOut("Failed to create pipeline state object!\n");
         return false;
@@ -414,14 +509,14 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     Assert(0 <= tileX && tileX < NumTilesX);
     Assert(0 <= tileZ && tileZ < NumTilesZ);
 
-    size_t dataSize = VertsPerTile * sizeof(Vertex);
+    size_t dataSize = VertsPerTile * sizeof(TerrainVertex);
     Tile& tile = m_tiles[TileIndex(tileX, tileZ)];
     for (int i = 0; i < 2; ++i)
     {
         tile.gpuDoubleBuffer[i] = renderer.CreateResidentBuffer(dataSize);
         tile.views[i].BufferLocation = tile.gpuDoubleBuffer[i]->GetGPUVirtualAddress();
         tile.views[i].SizeInBytes = (UINT)dataSize;
-        tile.views[i].StrideInBytes = sizeof(Vertex);
+        tile.views[i].StrideInBytes = sizeof(TerrainVertex);
     }
     tile.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
     tile.dirtyMin = Vec2i(CellsPerTileX, CellsPerTileZ);
@@ -442,7 +537,7 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     }
 
     // Map buffer and fill in vertex data.
-    Vertex* vertexData = nullptr;
+    TerrainVertex* vertexData = nullptr;
     tile.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
     Assert(vertexData);
 
@@ -468,7 +563,7 @@ void Terrain::BuildWater(Renderer& renderer)
 {
     const float HalfGridSizeX = 0.5f * CellSize * (float)(CellsPerTileX * NumTilesX);
     const float HalfGridSizeZ = 0.5f * CellSize * (float)(CellsPerTileZ * NumTilesZ);
-    const Vertex WaterVerts[] = {
+    const WaterVertex WaterVerts[] = {
         { { -HalfGridSizeX, 0.f, -HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
         { { -HalfGridSizeX, 0.f,  HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
         { {  HalfGridSizeX, 0.f,  HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
@@ -483,7 +578,7 @@ void Terrain::BuildWater(Renderer& renderer)
     renderer.CreateBuffer(m_waterVertexBuffer, m_waterIntermediateVertexBuffer, sizeof(WaterVerts), WaterVerts);
     m_waterVertexBufferView.BufferLocation = m_waterVertexBuffer->GetGPUVirtualAddress();
     m_waterVertexBufferView.SizeInBytes = sizeof(WaterVerts);
-    m_waterVertexBufferView.StrideInBytes = sizeof(Vertex);
+    m_waterVertexBufferView.StrideInBytes = sizeof(WaterVertex);
 
     renderer.CreateBuffer(m_waterIndexBuffer.buffer, m_waterIndexBuffer.intermediateBuffer, sizeof(WaterIndices), WaterIndices);
     m_waterIndexBuffer.view.BufferLocation = m_waterIndexBuffer.buffer->GetGPUVirtualAddress();
@@ -491,16 +586,15 @@ void Terrain::BuildWater(Renderer& renderer)
     m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);
 }
 
-void Terrain::UpdateVertex(Vertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)
+void Terrain::UpdateVertex(TerrainVertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)
 {
     int globalX = vertexCoords.x + tileCoords.x * CellsPerTileX;
     int globalZ = vertexCoords.y + tileCoords.y * CellsPerTileZ;
 
-    Vertex& v = mappedVertexData[VertexIndex(vertexCoords.x, vertexCoords.y)];
+    TerrainVertex& v = mappedVertexData[VertexIndex(vertexCoords.x, vertexCoords.y)];
     float height = heightmap[HeightmapIndex(vertexCoords.x, vertexCoords.y)];
     v.position = ToVertexPos(globalX, height, globalZ);
     v.normal = GenerateNormal(heightmap, vertexCoords, tileCoords);
-    v.colour = GenerateCol(height);
 }
 
 float Terrain::GenerateHeight(int globalX, int globalZ)
@@ -535,13 +629,6 @@ Vec3f Terrain::ToVertexPos(int globalX, float height, int globalZ)
         CellSize * ((float)globalX - 0.5f * (float)(CellsPerTileX * NumTilesX)),
         height,
         CellSize * ((float)globalZ - 0.5f * (float)(CellsPerTileZ * NumTilesZ)));
-}
-
-Vec4u8 Terrain::GenerateCol(float height)
-{
-    float t = std::clamp(height - 0.8f, 0.f, 1.f);
-    Vec4f colf = math::Lerp(Vec4f(0.f, 0.5f, 0.f, 1.f), Vec4f(1.f, 1.f, 1.f, 1.f), t);
-    return (Vec4u8)(colf * 255.f);
 }
 
 Vec3f Terrain::GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)

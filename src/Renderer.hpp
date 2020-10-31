@@ -17,13 +17,6 @@ namespace gaia
 class CommandQueue;
 class GenerateMips;
 
-struct Vertex
-{
-    Vec3f position;
-    Vec3f normal;
-    Vec4u8 colour;
-};
-
 namespace RootParam
 {
 enum E
