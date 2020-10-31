@@ -4,7 +4,8 @@ namespace gaia
 {
 
 class Renderer;
-struct Vertex;
+struct TerrainVertex;
+struct WaterVertex;
 
 class Terrain
 {
@@ -45,14 +46,14 @@ public:
 
 private:
     bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
+    bool CreateWaterPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
     void BuildTile(Renderer& renderer, int tileX, int tileZ);
     void BuildWater(Renderer& renderer);
-    void UpdateVertex(Vertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
+    void UpdateVertex(TerrainVertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
     float GenerateHeight(int globalX, int globalZ);
     Vec3f ToVertexPos(int globalX, float height, int globalZ);
-    Vec4u8 GenerateCol(float height);
     Vec3f GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
 
     std::vector<Tile> m_tiles;
@@ -66,9 +67,15 @@ private:
     IndexBuffer m_waterIndexBuffer;
 
     ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12PipelineState> m_waterPipelineState; // TODO: Move water to it's own class
     ComPtr<ID3D12Resource> m_constantBuffers[BackbufferCount];
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
-    int m_cbufferDescIndex = 0;
+    int m_cbufferDescIndex = -1;
+    int m_texDescIndices[2] = { -1, -1 };
+    bool m_texStateDirty = true;
+
+    ComPtr<ID3D12Resource> m_textures[2];
+    ComPtr<ID3D12Resource> m_intermediateTexBuffers[2];
 };
 
 }

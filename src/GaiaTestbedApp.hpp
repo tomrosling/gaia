@@ -22,5 +22,6 @@ private:
     gaia::Terrain m_terrain;
     gaia::Input m_input;
     gaia::Timer m_timer;
+    bool m_terrainEditEnabled = false;
     bool m_trackingMouseLeave = false;
 };

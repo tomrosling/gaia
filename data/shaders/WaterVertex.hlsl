@@ -7,12 +7,14 @@ struct Vertex
 {
     float3 pos : POSITION;
     float3 nrm : NORMAL;
+    float4 col : COLOUR;
 };
  
 struct VertexShaderOutput
 {
     float3 worldPos : POSITION;
     float3 nrm : NORMAL;
+    float4 col : COLOUR;
     float4 pos : SV_Position;
 };
  
@@ -24,6 +26,7 @@ VertexShaderOutput main(Vertex IN)
 
     OUT.worldPos = IN.pos;
     OUT.nrm = IN.nrm;
+    OUT.col = IN.col;
  
     return OUT;
 }
