@@ -3,6 +3,10 @@
 #include "CommandQueue.hpp"
 #include "GenerateMips.hpp"
 
+#include <imgui.h>
+#include <examples/imgui_impl_win32.h>
+#include <examples/imgui_impl_dx12.h>
+
 namespace gaia
 {
 
@@ -45,6 +49,10 @@ Renderer::~Renderer()
         // Ensure all commands are flushed before shutting down.
         m_directCommandQueue->Flush();
         m_copyCommandQueue->Flush();
+
+        ImGui_ImplDX12_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
     }
 }
 
@@ -179,6 +187,9 @@ bool Renderer::Create(HWND hwnd)
     if (!m_genMips->Init(*this))
         return false;
     
+    if (!CreateImgui(hwnd))
+        return false;
+
     m_created = true;
     return true;
 }
@@ -195,6 +206,8 @@ bool Renderer::ResizeViewport(int width, int height)
     {
         rt = nullptr;
     }
+
+    ImGui_ImplDX12_InvalidateDeviceObjects();
 
     // Recreate the swap chain render targets.
     DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
@@ -236,6 +249,8 @@ bool Renderer::ResizeViewport(int width, int height)
 
     // Create a readback buffer for the depth.
     m_depthReadbackBuffer = CreateReadbackBuffer(GetTexturePitchBytes(width, sizeof(float)) * height);
+
+    ImGui_ImplDX12_CreateDeviceObjects();
 
     m_viewport = CD3DX12_VIEWPORT(0.f, 0.f, (float)width, (float)height);
     m_projMat = math::perspectiveFovRH(0.25f * Pif, m_viewport.Width, m_viewport.Height, 0.01f, 1000.f);
@@ -314,6 +329,30 @@ bool Renderer::CreateRootSignature()
     return true;
 }
 
+bool Renderer::CreateImgui(HWND hwnd)
+{
+    // Create a separate SRV heap for imgui.
+    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    desc.NumDescriptors = 1;
+    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (m_device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_imguiSrvDescHeap)) != S_OK)
+        return false;
+
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
+    // Setup Platform/Renderer bindings
+    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplDX12_Init(m_device.Get(), BackbufferCount,
+                        DXGI_FORMAT_R8G8B8A8_UNORM, m_imguiSrvDescHeap.Get(),
+                        m_imguiSrvDescHeap->GetCPUDescriptorHandleForHeapStart(),
+                        m_imguiSrvDescHeap->GetGPUDescriptorHandleForHeapStart());
+
+    return true;
+}
+
 void Renderer::BeginFrame()
 {
     ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_currentBuffer].Get();
@@ -361,6 +400,14 @@ void Renderer::BeginFrame()
 
 void Renderer::EndFrame()
 {
+    Imgui();
+
+    // Render imgui.
+    ID3D12DescriptorHeap* imguiDescHeaps[] = { m_imguiSrvDescHeap.Get() };
+    m_directCommandList->SetDescriptorHeaps(1, imguiDescHeaps);
+    ImGui::Render();
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_directCommandList.Get());
+
     // Transition render target to present state
     CD3DX12_RESOURCE_BARRIER rtBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         m_renderTargets[m_currentBuffer].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -664,6 +711,21 @@ Vec3f Renderer::Unproject(Vec3f screenCoords) const
     // the near and far planes. This matches up with values in the depth buffer.
     Vec4f viewCoords = math::inverse(m_projMat) * Vec4f(screenCoords, 1.f);
     return Vec3f(viewCoords) / viewCoords.w;
+}
+
+void Renderer::BeginImguiFrame()
+{
+    // Do stuff that needs to happen at the start of the update, not start of the render.
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+}
+
+void Renderer::Imgui()
+{
+    ImGui::Begin("Renderer");
+    ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+    ImGui::End();
 }
 
 }

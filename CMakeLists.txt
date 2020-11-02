@@ -11,9 +11,7 @@ file(GLOB sources "src/*.cpp")
 file(GLOB headers "src/*.hpp")
 file(GLOB shaders "data/shaders/*.hlsl")
 set_source_files_properties("data/shaders/TerrainVertex.hlsl" "data/shaders/WaterVertex.hlsl" "data/shaders/DebugVertex.hlsl" PROPERTIES VS_SHADER_TYPE "Vertex")
-#set_source_files_properties("data/shaders/*Pixel.hlsl" PROPERTIES VS_SHADER_TYPE "Pixel")
 set_source_files_properties("data/shaders/TerrainPixel.hlsl" "data/shaders/WaterPixel.hlsl" "data/Shaders/DebugPixel.hlsl" PROPERTIES VS_SHADER_TYPE "Pixel")
-#set_source_files_properties("data/shaders/*Vertex.hlsl" PROPERTIES VS_SHADER_TYPE "Vertex")
 set_source_files_properties("data/shaders/GenerateMips.hlsl" PROPERTIES VS_SHADER_TYPE "Compute")
 set_source_files_properties(${shaders} PROPERTIES VS_SHADER_MODEL "5.1")
 source_group("Shaders" FILES ${shaders})
@@ -21,6 +19,14 @@ source_group("Shaders" FILES ${shaders})
 # Add DirectXTex helpers.
 set(sources ${sources} "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.cpp")
 set(headers ${headers} "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.h")
+
+# Imgui.
+set(sources ${sources} "dependencies/imgui/imgui.cpp"
+                       "dependencies/imgui/imgui_draw.cpp"
+                       "dependencies/imgui/imgui_widgets.cpp"
+                       "dependencies/imgui/examples/imgui_impl_dx12.cpp"
+                       "dependencies/imgui/examples/imgui_impl_win32.cpp")
+set(headers ${headers} "dependencies/imgui/imgui.h")
 
 add_executable(gaia WIN32 ${sources} ${headers} ${shaders})
 target_link_libraries(gaia 
@@ -32,6 +38,7 @@ target_link_libraries(gaia
 target_include_directories(gaia PRIVATE src 
     "dependencies/d3dx12"
     "dependencies/glm" 
+    "dependencies/imgui"
     "dependencies/stb" 
     "dependencies/DirectXTex/WICTextureLoader"
 )

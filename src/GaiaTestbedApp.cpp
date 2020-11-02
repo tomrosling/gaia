@@ -1,4 +1,5 @@
 #include "GaiaTestbedApp.hpp"
+#include <imgui.h>
 
 using namespace gaia;
 
@@ -20,13 +21,18 @@ bool GaiaTestbedApp::Init(HWND hwnd)
     return true;
 }
 
-bool GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    // Process imgui first.
+    extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    if (ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam) != 0)
+        return 1;
+
     switch (uMsg)
     {
     case WM_DESTROY:
         ::PostQuitMessage(0);
-        return true;
+        return 0;
 
     case WM_GETMINMAXINFO:
     {
@@ -34,25 +40,24 @@ bool GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         MINMAXINFO* minMaxInfo = (MINMAXINFO*)lParam;
         minMaxInfo->ptMinTrackSize.x = 128;
         minMaxInfo->ptMinTrackSize.y = 128;
-        return true;
+        return 0;
     }
 
     case WM_SIZE:
     {
-        int width = LOWORD(lParam);
-        int height = HIWORD(lParam);
-        if (!m_renderer.ResizeViewport(width, height))
+        m_windowSize = Vec2i(LOWORD(lParam), HIWORD(lParam));
+        if (!m_renderer.ResizeViewport(m_windowSize.x, m_windowSize.y))
         {
             DebugOut("Failed to resize window; quitting.\n");
             ::PostQuitMessage(1);
         }
-        return true;
+        return 0;
     }
 
     case WM_MOUSELEAVE:
         m_input.LoseFocus();
         m_trackingMouseLeave = false;
-        return true;
+        return 0;
 
     case WM_MOUSEMOVE:
     {
@@ -69,36 +74,62 @@ bool GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             m_trackingMouseLeave = true;
         }
 
-        Vec2i pos(LOWORD(lParam), HIWORD(lParam));
+        if (ImGui::GetIO().WantCaptureMouse)
+            return 0;
+
+        // ImGui might call SetCapture() so we have to clamp this.
+        Vec2i pos(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        pos = math::clamp(pos, Vec2iZero, m_windowSize - Vec2i(1, 1));
         m_input.MouseMove(pos);
-        return true;
+        return 0;
     }
 
     case WM_LBUTTONDOWN:
+        if (ImGui::GetIO().WantCaptureMouse)
+            return 0;
+
         m_input.SetMouseButtonDown(MouseButton::Left);
-        return true;
+        return 0;
 
     case WM_LBUTTONUP:
+        if (ImGui::GetIO().WantCaptureMouse)
+            return 0;
+
         m_input.SetMouseButtonUp(MouseButton::Left);
-        return true;
+        return 0;
 
     case WM_RBUTTONDOWN:
+        if (ImGui::GetIO().WantCaptureMouse)
+            return 0;
+
         m_input.SetMouseButtonDown(MouseButton::Right);
-        return true;
+        return 0;
 
     case WM_RBUTTONUP:
+        if (ImGui::GetIO().WantCaptureMouse)
+            return 0;
+
         m_input.SetMouseButtonUp(MouseButton::Right);
-        return true;
+        return 0;
 
     case WM_MBUTTONDOWN:
+        if (ImGui::GetIO().WantCaptureMouse)
+            return 0;
+
         m_input.SetMouseButtonDown(MouseButton::Middle);
-        return true;
+        return 0;
 
     case WM_MBUTTONUP:
+        if (ImGui::GetIO().WantCaptureMouse)
+            return 0;
+
         m_input.SetMouseButtonUp(MouseButton::Middle);
-        return true;
+        return 0;
 
     case WM_KEYDOWN:
+        if (ImGui::GetIO().WantCaptureKeyboard)
+            return 0;
+
         if ('A' <= wParam && wParam <= 'Z')
         {
             m_input.SetCharKeyDown((char)wParam);
@@ -108,9 +139,12 @@ bool GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         {
             m_input.SetSpecialKeyDown(SpecialKey::Shift);
         }
-        return true;
+        return 0;
 
     case WM_KEYUP:
+        if (ImGui::GetIO().WantCaptureKeyboard)
+            return 0;
+
         if ('A' <= wParam && wParam <= 'Z')
         {
             m_input.SetCharKeyUp((char)wParam);
@@ -142,10 +176,10 @@ bool GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             m_terrainEditEnabled ^= 1;
         }
 
-        return true;
+        return 0;
     }
 
-    return false;
+    return ::DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
 int GaiaTestbedApp::Run()
@@ -161,6 +195,8 @@ int GaiaTestbedApp::Run()
 
         float dt = m_timer.GetSecondsAndReset();
         dt = std::min(dt, 0.1f);
+
+        m_renderer.BeginImguiFrame();
         Update(dt);
         Render();
     }

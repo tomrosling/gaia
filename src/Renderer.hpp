@@ -87,8 +87,12 @@ public:
     float ReadDepth(int x, int y);
     Vec3f Unproject(Vec3f screenCoords) const;
 
+    void BeginImguiFrame();
+    void Imgui();
+
 private:
     bool CreateRootSignature();
+    bool CreateImgui(HWND hwnd);
 
     ComPtr<IDXGIFactory4> m_factory;
     ComPtr<IDXGIAdapter1> m_adapter;
@@ -100,6 +104,7 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbvDescHeaps[BackbufferCount]; // CRB/SRV/UAV descriptors.
+    ComPtr<ID3D12DescriptorHeap> m_imguiSrvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_computeDescHeap;
     ComPtr<ID3D12Resource> m_renderTargets[BackbufferCount];
     ComPtr<ID3D12Resource> m_depthBuffer;

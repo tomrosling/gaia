@@ -48,8 +48,5 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR pCmdLine, int nCmdShow)
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    if (g_app.WindowProc(hwnd, uMsg, wParam, lParam))
-        return 0;
-
-    return ::DefWindowProc(hwnd, uMsg, wParam, lParam);
+    return g_app.WindowProc(hwnd, uMsg, wParam, lParam);
 }

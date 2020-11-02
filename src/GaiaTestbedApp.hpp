@@ -10,7 +10,7 @@ class GaiaTestbedApp
 {
 public:
     bool Init(HWND hwnd);
-    bool WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    LRESULT WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     int Run();
 
 private:
@@ -22,6 +22,7 @@ private:
     gaia::Terrain m_terrain;
     gaia::Input m_input;
     gaia::Timer m_timer;
+    gaia::Vec2i m_windowSize = gaia::Vec2iZero;
     bool m_terrainEditEnabled = false;
     bool m_trackingMouseLeave = false;
 };
