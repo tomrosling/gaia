@@ -11,7 +11,7 @@ bool GaiaTestbedApp::Init(HWND hwnd)
     if (!m_renderer.Create(hwnd))
         return false;
 
-    if (!m_terrain.LoadCompiledShaders(m_renderer))
+    if (!m_terrain.Init(m_renderer))
         return false;
 
     // By this point, assume we have enough driver support to go without further error checks...
@@ -160,17 +160,6 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             ::PostQuitMessage(0);
         }
 
-        if (wParam == VK_F5)
-        {
-            m_terrain.HotloadShaders(m_renderer);
-        }
-
-        if (wParam == VK_F6)
-        {
-            m_renderer.WaitCurrentFrame();
-            m_terrain.Build(m_renderer);
-        }
-
         if (wParam == 'T')
         {
             m_terrainEditEnabled ^= 1;
@@ -210,6 +199,8 @@ int GaiaTestbedApp::Run()
 
 void GaiaTestbedApp::Update(float dt)
 {
+    m_terrain.Imgui(m_renderer);
+
     int currentBuffer = m_renderer.GetCurrentBuffer();
     float highlightRadius = 0.f;
     Vec2f highlightPos = Vec2fZero;

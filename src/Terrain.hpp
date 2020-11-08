@@ -10,6 +10,21 @@ struct WaterVertex;
 class Terrain
 {
 public:
+    Terrain();
+    bool Init(Renderer& renderer);
+    void Build(Renderer& renderer);
+    void Render(Renderer& renderer);
+    void RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy);
+
+    bool LoadCompiledShaders(Renderer& renderer);
+    bool HotloadShaders(Renderer& renderer);
+
+    void SetHighlightPos(Vec2f posXZ, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->hightlightPosXZ = posXZ; }
+    void SetHighlightRadius(float radius, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->highlightRadiusSq = math::Square(radius); }
+
+    void Imgui(Renderer& renderer);
+
+private:
     struct Tile
     {
         ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
@@ -34,17 +49,12 @@ public:
         float highlightRadiusSq;
     };
 
-    void Build(Renderer& renderer);
-    void Render(Renderer& renderer);
-    void RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy);
+    struct NoiseOctave
+    {
+        float frequency;
+        float amplitude;
+    };
 
-    bool LoadCompiledShaders(Renderer& renderer);
-    bool HotloadShaders(Renderer& renderer);
-
-    void SetHighlightPos(Vec2f posXZ, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->hightlightPosXZ = posXZ; }
-    void SetHighlightRadius(float radius, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->highlightRadiusSq = math::Square(radius); }
-
-private:
     bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
     bool CreateWaterPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
     void CreateConstantBuffers(Renderer& renderer);
@@ -76,6 +86,10 @@ private:
 
     ComPtr<ID3D12Resource> m_textures[2];
     ComPtr<ID3D12Resource> m_intermediateTexBuffers[2];
+
+    // Tweakables
+    NoiseOctave m_noiseOctaves[4];
+    bool m_randomiseSeed = true;
 };
 
 }

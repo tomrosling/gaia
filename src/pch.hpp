@@ -17,5 +17,7 @@
 #include <d3dcompiler.h>
 #include <dxgi1_6.h>
 
+#include <imgui.h>
+
 #include "GaiaDefs.hpp"
 #include "GaiaMath.hpp"

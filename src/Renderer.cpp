@@ -1,11 +1,9 @@
 #include "renderer.hpp"
 #include <WICTextureLoader12.h>
-#include "CommandQueue.hpp"
-#include "GenerateMips.hpp"
-
-#include <imgui.h>
 #include <examples/imgui_impl_win32.h>
 #include <examples/imgui_impl_dx12.h>
+#include "CommandQueue.hpp"
+#include "GenerateMips.hpp"
 
 namespace gaia
 {

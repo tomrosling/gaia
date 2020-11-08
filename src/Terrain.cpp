@@ -78,7 +78,15 @@ static Vec2i WorldPosToCell(Vec2f worldPosXZ, Vec2i tileCoords)
 }
 
 
-void Terrain::Build(Renderer& renderer)
+Terrain::Terrain()
+    : m_noiseOctaves{ { 0.005f, 3.5f },
+                      { 0.02f, 1.0f },
+                      { 0.1f, 0.05f },
+                      { 0.37f, 0.02f } }
+{
+}
+
+bool Terrain::Init(Renderer& renderer)
 {
     CreateConstantBuffers(renderer);
 
@@ -87,8 +95,28 @@ void Terrain::Build(Renderer& renderer)
     m_texDescIndices[0] = renderer.LoadTexture(m_textures[0], m_intermediateTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
     m_texDescIndices[1] = renderer.LoadTexture(m_textures[1], m_intermediateTexBuffers[1], L"ground_grey_diff_1k.png");
 
+    renderer.WaitUploads(renderer.EndUploads());
+
+    // Must be done after upload has completed!
+    // TODO: Expose m_d3d12CommandQueue->Wait(other.m_d3d12Fence.Get(), other.m_FenceValue)
+    //       via some kind of CommandQueue::GPUWait() interface!
+    m_intermediateTexBuffers[0] = nullptr;
+    m_intermediateTexBuffers[1] = nullptr;
+    renderer.GenerateMips(m_textures[0].Get());
+    renderer.GenerateMips(m_textures[1].Get());
+
+    return LoadCompiledShaders(renderer);
+}
+
+void Terrain::Build(Renderer& renderer)
+{
+    renderer.BeginUploads();
+
     // Note: rand() is not seeded so this is still deterministic, for now.
-    m_seed = rand();
+    if (m_randomiseSeed)
+    {
+        m_seed = rand();
+    }
 
     m_tiles.resize(NumTilesX * NumTilesZ);
     for (int z = 0; z < NumTilesZ; ++z)
@@ -103,15 +131,6 @@ void Terrain::Build(Renderer& renderer)
     BuildWater(renderer);
 
     m_uploadFenceVal = renderer.EndUploads();
-
-    // Must be done after texture upload has completed!
-    // TODO: Expose m_d3d12CommandQueue->Wait(other.m_d3d12Fence.Get(), other.m_FenceValue)
-    //       via some kind of CommandQueue::GPUWait() interface!
-    renderer.WaitUploads(m_uploadFenceVal);
-    m_intermediateTexBuffers[0] = nullptr;
-    m_intermediateTexBuffers[1] = nullptr;
-    renderer.GenerateMips(m_textures[0].Get());
-    renderer.GenerateMips(m_textures[1].Get());
 }
 
 void Terrain::Render(Renderer& renderer)
@@ -346,6 +365,43 @@ bool Terrain::HotloadShaders(Renderer& renderer)
     return CreateWaterPipelineState(renderer, waterVertexShader.Get(), waterPixelShader.Get());
 }
 
+void Terrain::Imgui(Renderer& renderer)
+{
+    if (ImGui::Begin("Terrain"))
+    {
+        if (ImGui::CollapsingHeader("Perlin Octaves", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            for (int i = 0; i < (int)std::size(m_noiseOctaves); ++i)
+            {
+                ImGui::Columns(2);
+                ImGui::PushID(i);
+                ImGui::DragFloat("Frequency", &m_noiseOctaves[i].frequency, 0.001f, 0.f, 1.f);
+                ImGui::NextColumn();
+                ImGui::DragFloat("Amplitude", &m_noiseOctaves[i].amplitude, 0.01f, 0.f, 10.f);
+                ImGui::NextColumn();
+                ImGui::PopID();
+            }
+
+            ImGui::Columns(1);
+        }
+        
+        if (ImGui::Button("Regenerate"))
+        {
+            renderer.WaitCurrentFrame();
+            Build(renderer);
+        }
+
+        ImGui::SameLine();
+        ImGui::Checkbox("Randomise Seed", &m_randomiseSeed);
+
+        if (ImGui::Button("Reload Shaders"))
+        {
+            HotloadShaders(renderer);
+        }
+    }
+    ImGui::End();
+}
+
 bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader)
 {
     // Create PSO
@@ -525,6 +581,7 @@ void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
     // Generate heightmap.
     // The heightmap has an extra row and column on each side
     // to allow us to smoothly calculate the gradient between tiles (i.e. they overlap).
+    tile.heightmap.clear();
     tile.heightmap.reserve(VertsPerHeightmap);
     for (int z = -1; z <= CellsPerTileZ + 1; ++z)
     {
@@ -599,24 +656,13 @@ void Terrain::UpdateVertex(TerrainVertex* mappedVertexData, const std::vector<fl
 
 float Terrain::GenerateHeight(int globalX, int globalZ)
 {
-    const struct
-    {
-        float frequency;
-        float amplitude;
-    } Octaves[] = {
-        { 1.f / 131.f, 3.f },
-        { 1.f / 51.f, 1.f },
-        { 1.f / 13.f, 0.15f },
-        { 0.9999f, 0.05f }
-    };
-
     float height = 0.5f;
 
     // May be better just to use one of the built in stb_perlin functions
     // to generate multiple octaves, but this is quite nice for now.
-    for (int i = 0; i < (int)std::size(Octaves); ++i)
+    for (int i = 0; i < (int)std::size(m_noiseOctaves); ++i)
     {
-        auto [frequency, amplitude] = Octaves[i];
+        auto [frequency, amplitude] = m_noiseOctaves[i];
         height += amplitude * stb_perlin_noise3_seed((float)globalX * frequency, 0.f, (float)globalZ * frequency, 0, 0, 0, m_seed + i);
     }
 
