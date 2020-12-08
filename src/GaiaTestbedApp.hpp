@@ -17,12 +17,15 @@ private:
     void Update(float dt);
     void Render();
 
+    bool IsMouseInWindow() const;
+
     gaia::Renderer m_renderer;
     gaia::Camera m_camera;
     gaia::Terrain m_terrain;
     gaia::Input m_input;
     gaia::Timer m_timer;
     gaia::Vec2i m_windowSize = gaia::Vec2iZero;
+    HWND m_hwnd = nullptr;
     bool m_terrainEditEnabled = false;
     bool m_trackingMouseLeave = false;
 };

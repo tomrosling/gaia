@@ -5,6 +5,8 @@ using namespace gaia;
 
 bool GaiaTestbedApp::Init(HWND hwnd)
 {
+    m_hwnd = hwnd;
+
     if (FAILED(::CoInitialize(nullptr)))
         return false;
 
@@ -56,6 +58,10 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 
     case WM_MOUSELEAVE:
         m_input.LoseFocus();
+        if (m_input.DisableCursorLock())
+        {
+            ::ShowCursor(TRUE);
+        }
         m_trackingMouseLeave = false;
         return 0;
 
@@ -130,6 +136,10 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         if (ImGui::GetIO().WantCaptureKeyboard)
             return 0;
 
+        // Ignore key repeats.
+        if (lParam & (1 << 30))
+            return 0;
+
         if ('A' <= wParam && wParam <= 'Z')
         {
             m_input.SetCharKeyDown((char)wParam);
@@ -138,6 +148,12 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         if (wParam == VK_SHIFT)
         {
             m_input.SetSpecialKeyDown(SpecialKey::Shift);
+
+            POINT point;
+            ::GetCursorPos(&point);
+            ::ScreenToClient(hwnd, &point);
+            m_input.EnableCursorLock(Vec2i(point.x, point.y));
+            ::ShowCursor(FALSE);
         }
         return 0;
 
@@ -152,6 +168,10 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 
         if (wParam == VK_SHIFT)
         {
+            if (m_input.DisableCursorLock())
+            {
+                ::ShowCursor(TRUE);
+            }
             m_input.SetSpecialKeyUp(SpecialKey::Shift);
         }
 
@@ -199,13 +219,20 @@ int GaiaTestbedApp::Run()
 
 void GaiaTestbedApp::Update(float dt)
 {
+    Vec2i cursorLockPos = m_input.GetCursorLockPos();
+    if (cursorLockPos.x != -1 && cursorLockPos.y != -1)
+    {
+        ::ClientToScreen(m_hwnd, (POINT*)&cursorLockPos);
+        ::SetCursorPos(cursorLockPos.x, cursorLockPos.y);
+    }
+
     m_terrain.Imgui(m_renderer);
 
     int currentBuffer = m_renderer.GetCurrentBuffer();
     float highlightRadius = 0.f;
     Vec2f highlightPos = Vec2fZero;
 
-    if (m_terrainEditEnabled)
+    if (m_terrainEditEnabled && !m_input.IsCursorLocked() && IsMouseInWindow())
     {
         // Do mouse picking (before updating the camera matrix).
         Vec2i mousePos = m_input.GetMousePos();
@@ -248,4 +275,11 @@ void GaiaTestbedApp::Render()
     m_terrain.Render(m_renderer);
     DebugDraw::Instance().Render(m_renderer);
     m_renderer.EndFrame();
+}
+
+bool GaiaTestbedApp::IsMouseInWindow() const
+{
+    Vec2i mousePos = m_input.GetMousePos();
+    return 0 <= mousePos.x && mousePos.x < m_windowSize.x
+        && 0 <= mousePos.y && mousePos.y < m_windowSize.y;
 }

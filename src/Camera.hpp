@@ -18,7 +18,7 @@ private:
 
     // Config
     float m_linSpeed = 3.f;
-    Vec2f m_rotSpeed{ 0.5f, 0.4f };
+    Vec2f m_rotSpeed{ 0.35f, 0.3f };
 };
 
 }
