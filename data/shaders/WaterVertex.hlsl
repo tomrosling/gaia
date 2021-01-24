@@ -1,6 +1,7 @@
 cbuffer VSSharedConstants : register(b0)
 {
-    matrix viewProjMat;
+    matrix viewMat;
+    matrix projMat;
 };
  
 struct Vertex
@@ -22,7 +23,7 @@ VertexShaderOutput main(Vertex IN)
 {
     VertexShaderOutput OUT;
  
-    OUT.pos = mul(viewProjMat, float4(IN.pos, 1.0));
+    OUT.pos = mul(projMat, mul(viewMat, float4(IN.pos, 1.0)));
 
     OUT.worldPos = IN.pos;
     OUT.nrm = IN.nrm;

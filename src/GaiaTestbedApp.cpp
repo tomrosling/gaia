@@ -16,6 +16,9 @@ bool GaiaTestbedApp::Init(HWND hwnd)
     if (!m_terrain.Init(m_renderer))
         return false;
 
+    if (!m_skybox.Init(m_renderer))
+        return false;
+
     // By this point, assume we have enough driver support to go without further error checks...
     DebugDraw::Instance().Init(m_renderer);
     m_terrain.Build(m_renderer);
@@ -273,6 +276,7 @@ void GaiaTestbedApp::Render()
 {
     m_renderer.BeginFrame();
     m_terrain.Render(m_renderer);
+    m_skybox.Render(m_renderer);
     DebugDraw::Instance().Render(m_renderer);
     m_renderer.EndFrame();
 }

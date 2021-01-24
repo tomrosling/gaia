@@ -3,6 +3,7 @@
 #include "DebugDraw.hpp"
 #include "Input.hpp"
 #include "Renderer.hpp"
+#include "Skybox.hpp"
 #include "Terrain.hpp"
 #include "Timer.hpp"
 
@@ -22,6 +23,7 @@ private:
     gaia::Renderer m_renderer;
     gaia::Camera m_camera;
     gaia::Terrain m_terrain;
+    gaia::Skybox m_skybox;
     gaia::Input m_input;
     gaia::Timer m_timer;
     gaia::Vec2i m_windowSize = gaia::Vec2iZero;

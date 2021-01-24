@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include <DDSTextureLoader12.h>
 #include <WICTextureLoader12.h>
 #include <examples/imgui_impl_win32.h>
 #include <examples/imgui_impl_dx12.h>
@@ -28,7 +29,8 @@ static int CountMips(int width, int height)
 
 struct VSSharedConstants
 {
-    Mat4f viewProjMat;
+    Mat4f viewMat;
+    Mat4f projMat;
 };
 
 struct PSSharedConstants
@@ -371,7 +373,7 @@ void Renderer::BeginFrame()
 
     // Clear backbuffer
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBuffer, m_rtvDescriptorSize);
-    float clearColor[] = { 0.8f, 0.5f, 0.8f, 0.0f };
+    float clearColor[] = { 0.3f, 0.65f, 0.99f, 0.0f };
     m_directCommandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
 
     // Clear depth buffer
@@ -385,7 +387,7 @@ void Renderer::BeginFrame()
     m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
     // Set global uniforms
-    VSSharedConstants vertexConstants = { m_projMat * m_viewMat };
+    VSSharedConstants vertexConstants = { m_viewMat, m_projMat };
     m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::VSSharedConstants, sizeof(VSSharedConstants) / 4, &vertexConstants, 0);
 
     PSSharedConstants pixelConstants = { Vec3f(math::affineInverse(m_viewMat)[3]) };
@@ -513,10 +515,22 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
     //       that we will immediately want to generate mips!
     ID3D12Resource* rawTexture = nullptr;
     std::unique_ptr<uint8[]> decodedData;
-    D3D12_SUBRESOURCE_DATA subresource = {};
-    HRESULT ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-        DirectX::WIC_LOADER_MIP_RESERVE, &rawTexture, decodedData, subresource);
+    std::vector<D3D12_SUBRESOURCE_DATA> subresources = {};
+    bool cubemap = false;
+    HRESULT ret;
+    if (wcscmp(GetFileExtension(filepath), L"dds") == 0)
+    {
+        ret = DirectX::LoadDDSTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            DirectX::DDS_LOADER_DEFAULT, &rawTexture, decodedData, subresources, nullptr, &cubemap);
+    }
+    else
+    {
+        subresources.resize(1);
+        ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                                DirectX::WIC_LOADER_MIP_RESERVE, &rawTexture, decodedData, subresources.front());
+    }
     Assert(SUCCEEDED(ret));
+    Assert(0 < subresources.size() && subresources.size() <= 6);
 
     if (SUCCEEDED(ret))
     {
@@ -528,15 +542,23 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
         // when it is used on a direct command list, but for now, calling code should 
         // then transition to D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE for performance.
         // Could manage that internally to the renderer if we wanted.
-        intermediateBuffer = CreateUploadBuffer(subresource.SlicePitch);
-        ::UpdateSubresources<1>(m_copyCommandList.Get(), rawTexture, intermediateBuffer.Get(), 0, 0, 1, &subresource);
+        intermediateBuffer = CreateUploadBuffer(subresources.size() * subresources.front().SlicePitch);
+        ::UpdateSubresources<6>(m_copyCommandList.Get(), rawTexture, intermediateBuffer.Get(), 0, 0, subresources.size(), subresources.data());
 
         // Allocate an SRV.
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Format = desc.Format;
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = CountMips(desc.Width, desc.Height);
+        if (cubemap)
+        {
+            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+            srvDesc.TextureCube.MipLevels = 1;
+        }
+        else 
+        {
+            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srvDesc.Texture2D.MipLevels = CountMips(desc.Width, desc.Height);
+        }
 
         for (const ComPtr<ID3D12DescriptorHeap>& heap : m_cbvDescHeaps)
         {

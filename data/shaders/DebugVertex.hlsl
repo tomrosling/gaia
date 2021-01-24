@@ -1,6 +1,7 @@
 cbuffer VSSharedConstants : register(b0)
 {
-    matrix ViewProjMat;
+    matrix viewMat;
+    matrix projMat;
 };
  
 struct VertexPosColor
@@ -19,7 +20,7 @@ VertexShaderOutput main(VertexPosColor IN)
 {
     VertexShaderOutput OUT;
  
-    OUT.pos = mul(ViewProjMat, float4(IN.pos, 1.0));
+    OUT.pos = mul(projMat, mul(viewMat, float4(IN.pos, 1.0)));
     OUT.col = IN.col;
  
     return OUT;
