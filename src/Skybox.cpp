@@ -7,19 +7,10 @@ namespace gaia
 bool Skybox::Init(Renderer& renderer)
 {
     // Production: load precompiled shaders
-    ComPtr<ID3DBlob> vertexShader;
-    ComPtr<ID3DBlob> pixelShader;
-    if (FAILED(::D3DReadFileToBlob(L"SkyboxVertex.cso", &vertexShader)))
-    {
-        DebugOut("Failed to load SkyboxVertex shader!\n");
+    ComPtr<ID3DBlob> vertexShader = renderer.LoadCompiledShader(L"SkyboxVertex.cso");
+    ComPtr<ID3DBlob> pixelShader = renderer.LoadCompiledShader(L"SkyboxPixel.cso");
+    if (!(vertexShader && pixelShader))
         return false;
-    }
-
-    if (FAILED(::D3DReadFileToBlob(L"SkyboxPixel.cso", &pixelShader)))
-    {
-        DebugOut("Failed to load SkyboxPixel shader!\n");
-        return false;
-    }
 
     if (!CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get()))
         return false;

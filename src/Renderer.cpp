@@ -450,6 +450,37 @@ void Renderer::WaitCurrentFrame()
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
 }
 
+ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage stage)
+{
+    const char* stageTargets[] = {
+        "vs_5_1",
+        "ps_5_1",
+    };
+    static_assert(std::size(stageTargets) == (size_t)ShaderStage::Count);
+
+    ComPtr<ID3DBlob> blob;
+    ComPtr<ID3DBlob> error;
+    if (FAILED(::D3DCompileFromFile(filename, nullptr, nullptr, "main", stageTargets[(int)stage], 0, 0, &blob, &error)))
+    {
+        DebugOut("Failed to load shader '%S':\n\n%s\n\n", filename, error->GetBufferPointer());
+        return nullptr;
+    }
+
+    return blob;
+}
+
+ComPtr<ID3DBlob> Renderer::LoadCompiledShader(const wchar_t* filename)
+{
+    ComPtr<ID3DBlob> blob;
+    if (FAILED(::D3DReadFileToBlob(filename, &blob)))
+    {
+        DebugOut("Failed to load shader '%S'!\n", filename);
+        return nullptr;
+    }
+
+    return blob;
+}
+
 void Renderer::BeginUploads()
 {
     m_copyCommandAllocator->Reset();

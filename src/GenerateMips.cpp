@@ -138,12 +138,9 @@ bool GenerateMips::CreatePipelineState(Renderer& renderer)
     ID3D12Device2& device = renderer.GetDevice();
 
     // Load shader.
-    ComPtr<ID3DBlob> shader;
-    if (FAILED(::D3DReadFileToBlob(L"GenerateMips.cso", &shader)))
-    {
-        DebugOut("Failed to load GenerateMips shader!\n");
+    ComPtr<ID3DBlob> shader = renderer.LoadCompiledShader(L"GenerateMips.cso");
+    if (!shader)
         return false;
-    }
 
     // Create PSO.
     struct PipelineStateStream

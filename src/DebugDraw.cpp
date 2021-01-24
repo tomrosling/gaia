@@ -16,13 +16,11 @@ static constexpr int MaxVertices = BufferSize / sizeof(DebugDraw::DebugVertex);
 void DebugDraw::Init(Renderer& renderer)
 {
     // Create a PSO
-    ComPtr<ID3DBlob> vertexShader;
-    HRESULT result = ::D3DReadFileToBlob(L"DebugVertex.cso", &vertexShader);
-    Assert(SUCCEEDED(result));
+    ComPtr<ID3DBlob> vertexShader = renderer.LoadCompiledShader(L"DebugVertex.cso");
+    Assert(vertexShader);
 
-    ComPtr<ID3DBlob> pixelShader;
-    result = ::D3DReadFileToBlob(L"DebugPixel.cso", &pixelShader);
-    Assert(SUCCEEDED(result));
+    ComPtr<ID3DBlob> pixelShader = renderer.LoadCompiledShader(L"DebugPixel.cso");
+    Assert(pixelShader);
 
     struct PipelineStateStream
     {
@@ -56,7 +54,7 @@ void DebugDraw::Init(Renderer& renderer)
     ((D3D12_DEPTH_STENCIL_DESC&)pipelineStateStream.depthStencil).DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 
     D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
-    result = renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState));
+    HRESULT result = renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState));
     Assert(SUCCEEDED(result));
 
     // Create buffers

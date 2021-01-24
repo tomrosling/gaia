@@ -288,38 +288,20 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
 bool Terrain::LoadCompiledShaders(Renderer& renderer)
 {
     // Production: load precompiled shaders
-    ComPtr<ID3DBlob> vertexShader;
-    ComPtr<ID3DBlob> pixelShader;
-    if (FAILED(::D3DReadFileToBlob(L"TerrainVertex.cso", &vertexShader)))
-    {
-        DebugOut("Failed to load TerrainVertex shader!\n");
+    ComPtr<ID3DBlob> vertexShader = renderer.LoadCompiledShader(L"TerrainVertex.cso");
+    ComPtr<ID3DBlob> pixelShader = renderer.LoadCompiledShader(L"TerrainPixel.cso");
+    if (!(vertexShader && pixelShader))
         return false;
-    }
-
-    if (FAILED(::D3DReadFileToBlob(L"TerrainPixel.cso", &pixelShader)))
-    {
-        DebugOut("Failed to load TerrainPixel shader!\n");
-        return false;
-    }
 
     if (!CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get()))
         return false;
 
     
     // Load water shaders
-    ComPtr<ID3DBlob> waterVertexShader;
-    ComPtr<ID3DBlob> waterPixelShader;
-    if (FAILED(::D3DReadFileToBlob(L"WaterVertex.cso", &waterVertexShader)))
-    {
-        DebugOut("Failed to load TerrainVertex shader!\n");
+    ComPtr<ID3DBlob> waterVertexShader = renderer.LoadCompiledShader(L"WaterVertex.cso");
+    ComPtr<ID3DBlob> waterPixelShader = renderer.LoadCompiledShader(L"WaterPixel.cso");
+    if (!(waterVertexShader && waterPixelShader))
         return false;
-    }
-
-    if (FAILED(::D3DReadFileToBlob(L"WaterPixel.cso", &waterPixelShader)))
-    {
-        DebugOut("Failed to load TerrainPixel shader!\n");
-        return false;
-    }
 
     return CreateWaterPipelineState(renderer, waterVertexShader.Get(), waterPixelShader.Get());
 }
@@ -327,20 +309,10 @@ bool Terrain::LoadCompiledShaders(Renderer& renderer)
 bool Terrain::HotloadShaders(Renderer& renderer)
 {
     // Development: compile from files on the fly
-    ComPtr<ID3DBlob> vertexShader;
-    ComPtr<ID3DBlob> pixelShader;
-    ComPtr<ID3DBlob> error;
-    if (FAILED(::D3DCompileFromFile(L"TerrainVertex.hlsl", nullptr, nullptr, "main", "vs_5_1", 0, 0, &vertexShader, &error)))
-    {
-        DebugOut("Failed to load vertex shader:\n\n%s\n\n", error->GetBufferPointer());
+    ComPtr<ID3DBlob> vertexShader = renderer.CompileShader(L"TerrainVertex.hlsl", ShaderStage::Vertex);
+    ComPtr<ID3DBlob> pixelShader = renderer.CompileShader(L"TerrainPixel.hlsl", ShaderStage::Pixel);
+    if (!(vertexShader && pixelShader))
         return false;
-    }
-
-    if (FAILED(::D3DCompileFromFile(L"TerrainPixel.hlsl", nullptr, nullptr, "main", "ps_5_1", 0, 0, &pixelShader, &error)))
-    {
-        DebugOut("Failed to load pixel shader:\n\n%s\n\n", error->GetBufferPointer());
-        return false;
-    }
 
     // Force a full CPU/GPU sync then recreate the PSO.
     renderer.WaitCurrentFrame();
@@ -348,19 +320,11 @@ bool Terrain::HotloadShaders(Renderer& renderer)
     if (!CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get()))
         return false;
 
-    ComPtr<ID3DBlob> waterVertexShader;
-    ComPtr<ID3DBlob> waterPixelShader;
-    if (FAILED(::D3DCompileFromFile(L"WaterVertex.hlsl", nullptr, nullptr, "main", "vs_5_1", 0, 0, &waterVertexShader, &error)))
-    {
-        DebugOut("Failed to load vertex shader:\n\n%s\n\n", error->GetBufferPointer());
+    ComPtr<ID3DBlob> waterVertexShader = renderer.CompileShader(L"WaterVertex.hlsl", ShaderStage::Vertex);
+    ComPtr<ID3DBlob> waterPixelShader = renderer.CompileShader(L"WaterPixel.hlsl", ShaderStage::Pixel);
+    if (!(waterVertexShader && waterPixelShader))
         return false;
-    }
 
-    if (FAILED(::D3DCompileFromFile(L"WaterPixel.hlsl", nullptr, nullptr, "main", "ps_5_1", 0, 0, &waterPixelShader, &error)))
-    {
-        DebugOut("Failed to load pixel shader:\n\n%s\n\n", error->GetBufferPointer());
-        return false;
-    }
 
     return CreateWaterPipelineState(renderer, waterVertexShader.Get(), waterPixelShader.Get());
 }

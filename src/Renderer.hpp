@@ -17,6 +17,13 @@ namespace gaia
 class CommandQueue;
 class GenerateMips;
 
+enum class ShaderStage
+{
+    Vertex,
+    Pixel,
+    Count
+};
+
 namespace RootParam
 {
 enum E
@@ -51,6 +58,9 @@ public:
     ID3D12GraphicsCommandList2& GetDirectCommandList() { Assert(m_directCommandList); return *m_directCommandList.Get(); }
     ID3D12GraphicsCommandList2& GetCopyCommandList() { Assert(m_copyCommandList); return *m_copyCommandList.Get(); }
     ID3D12GraphicsCommandList2& GetComputeCommandList() { Assert(m_computeCommandList); return *m_computeCommandList.Get(); }
+
+    ComPtr<ID3DBlob> CompileShader(const wchar_t* filename, ShaderStage stage);
+    ComPtr<ID3DBlob> LoadCompiledShader(const wchar_t* filename);
 
     void BeginUploads();
     ComPtr<ID3D12Resource> CreateResidentBuffer(size_t size);
