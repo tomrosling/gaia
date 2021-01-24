@@ -8,4 +8,4 @@ Toy/learning project (at a very early stage).
 
 ## Controls
 
-WASDQE for camera movement, hold shift and move mouse for pan. Left mouse click raises terrain under cursor, right mouse click lowers it.
+WASDQE for camera movement, right mouse button drag for pan. T toggles terrain edit mode; then left mouse raises terrain under cursor, or lowers it when control is pressed.

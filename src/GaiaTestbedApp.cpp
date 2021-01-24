@@ -112,6 +112,14 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             return 0;
 
         m_input.SetMouseButtonDown(MouseButton::Right);
+
+        {
+            POINT point;
+            ::GetCursorPos(&point);
+            ::ScreenToClient(hwnd, &point);
+            m_input.EnableCursorLock(Vec2i(point.x, point.y));
+            ::ShowCursor(FALSE);
+        }
         return 0;
 
     case WM_RBUTTONUP:
@@ -119,6 +127,11 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             return 0;
 
         m_input.SetMouseButtonUp(MouseButton::Right);
+
+        if (m_input.DisableCursorLock())
+        {
+            ::ShowCursor(TRUE);
+        }
         return 0;
 
     case WM_MBUTTONDOWN:
@@ -148,15 +161,16 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             m_input.SetCharKeyDown((char)wParam);
         }
 
-        if (wParam == VK_SHIFT)
+        switch (wParam)
         {
+        case VK_SHIFT:
             m_input.SetSpecialKeyDown(SpecialKey::Shift);
-
-            POINT point;
-            ::GetCursorPos(&point);
-            ::ScreenToClient(hwnd, &point);
-            m_input.EnableCursorLock(Vec2i(point.x, point.y));
-            ::ShowCursor(FALSE);
+            break;
+        case VK_CONTROL:
+            m_input.SetSpecialKeyDown(SpecialKey::Ctrl);
+            break;
+        default:
+            break;
         }
         return 0;
 
@@ -169,23 +183,22 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             m_input.SetCharKeyUp((char)wParam);
         }
 
-        if (wParam == VK_SHIFT)
+        switch (wParam)
         {
-            if (m_input.DisableCursorLock())
-            {
-                ::ShowCursor(TRUE);
-            }
+        case VK_SHIFT:
             m_input.SetSpecialKeyUp(SpecialKey::Shift);
-        }
-
-        if (wParam == VK_ESCAPE)
-        {
+            break;
+        case VK_CONTROL:
+            m_input.SetSpecialKeyUp(SpecialKey::Ctrl);
+            break;
+        case VK_ESCAPE:
             ::PostQuitMessage(0);
-        }
-
-        if (wParam == 'T')
-        {
+            break;
+        case 'T':
             m_terrainEditEnabled ^= 1;
+            break;
+        default:
+            break;
         }
 
         return 0;
@@ -249,11 +262,8 @@ void GaiaTestbedApp::Update(float dt)
 
             if (m_input.IsMouseButtonDown(MouseButton::Left))
             {
-                m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, 0.002f);
-            }
-            else if (m_input.IsMouseButtonDown(MouseButton::Right))
-            {
-                m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, -0.002f);
+                float offset = m_input.IsSpecialKeyDown(SpecialKey::Ctrl) ? -0.002f : 0.002f;
+                m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, offset);
             }
 
             highlightRadius = modifyRadius;

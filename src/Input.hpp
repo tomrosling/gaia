@@ -5,7 +5,8 @@ namespace gaia
 
 enum class SpecialKey
 {
-    Shift
+    Shift,
+    Ctrl
 };
 
 enum class MouseButton

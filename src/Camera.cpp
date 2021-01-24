@@ -6,7 +6,7 @@ namespace gaia
 
 Mat4f Camera::Update(const Input& input, float dt)
 {
-    if (input.IsSpecialKeyDown(SpecialKey::Shift))
+    if (input.IsMouseButtonDown(MouseButton::Right))
     {
         Vec2f mouseDelta = (Vec2f)input.GetMouseDelta();
         Vec2f swizzle(-mouseDelta.y * m_rotSpeed.x, -mouseDelta.x * m_rotSpeed.y);
