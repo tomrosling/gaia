@@ -100,6 +100,7 @@ private:
     // Tweakables
     NoiseOctave m_noiseOctaves[4];
     bool m_randomiseSeed = true;
+    bool m_wireframeMode = false;
 };
 
 }

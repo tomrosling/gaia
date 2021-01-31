@@ -360,6 +360,12 @@ void Terrain::Imgui(Renderer& renderer)
         ImGui::SameLine();
         ImGui::Checkbox("Randomise Seed", &m_randomiseSeed);
 
+        if (ImGui::Checkbox("Wireframe Mode", &m_wireframeMode))
+        {
+            // Trigger PSO recreation.
+            HotloadShaders(renderer);
+        }
+
         if (ImGui::Button("Reload Shaders"))
         {
             HotloadShaders(renderer);
@@ -406,6 +412,11 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
     pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
     pipelineStateStream.rtvFormats = rtvFormats;
     ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FrontCounterClockwise = true;
+
+    if (m_wireframeMode)
+    {
+        ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FillMode = D3D12_FILL_MODE_WIREFRAME;
+    }
 
     D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
     if (FAILED(renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
