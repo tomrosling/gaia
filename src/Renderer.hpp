@@ -20,6 +20,8 @@ class GenerateMips;
 enum class ShaderStage
 {
     Vertex,
+    Hull,
+    Domain,
     Pixel,
     Count
 };

@@ -64,7 +64,7 @@ private:
         float amplitude;
     };
 
-    bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
+    bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* hullShader, ID3DBlob* domainShader, ID3DBlob* pixelShader);
     bool CreateWaterPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);

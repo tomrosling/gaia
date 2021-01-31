@@ -1,4 +1,4 @@
-cbuffer PSSharedConstants : register(b0)
+cbuffer PSSharedConstants : register(b1)
 {
     float3 CamPos;
 };

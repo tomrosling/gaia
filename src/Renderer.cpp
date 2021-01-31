@@ -267,7 +267,7 @@ bool Renderer::CreateRootSignature()
     D3D12_DESCRIPTOR_RANGE1 cbvDescRange = {};
     cbvDescRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
     cbvDescRange.NumDescriptors = 1;
-    cbvDescRange.BaseShaderRegister = 1;
+    cbvDescRange.BaseShaderRegister = 2;
     cbvDescRange.RegisterSpace = 0;
     cbvDescRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
@@ -282,10 +282,10 @@ bool Renderer::CreateRootSignature()
     srvDescRange1.BaseShaderRegister = 1;
 
     CD3DX12_ROOT_PARAMETER1 rootParams[RootParam::Count];
-    rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
-    rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_ALL); // TODO: tidy up or rename! We're running out of root signature space. They should probably be in a cbuffer instead.
+    rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
-    rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_VERTEX);
+    rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_DOMAIN);
     rootParams[RootParam::Texture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
 
@@ -308,8 +308,6 @@ bool Renderer::CreateRootSignature()
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
     rootSignatureDesc.Init_1_1((UINT)std::size(rootParams), rootParams, 1, &samplerDesc, rootSignatureFlags);
 
@@ -455,6 +453,8 @@ ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage st
 {
     const char* stageTargets[] = {
         "vs_5_1",
+        "hs_5_1",
+        "ds_5_1",
         "ps_5_1",
     };
     static_assert(std::size(stageTargets) == (size_t)ShaderStage::Count);
@@ -463,7 +463,7 @@ ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage st
     ComPtr<ID3DBlob> error;
     if (FAILED(::D3DCompileFromFile(filename, nullptr, nullptr, "main", stageTargets[(int)stage], 0, 0, &blob, &error)))
     {
-        DebugOut("Failed to load shader '%S':\n\n%s\n\n", filename, error->GetBufferPointer());
+        DebugOut("Failed to load shader '%S':\n\n%s\n\n", filename, error ? error->GetBufferPointer() : "<unknown error>");
         return nullptr;
     }
 

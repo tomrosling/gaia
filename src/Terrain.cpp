@@ -21,12 +21,12 @@ struct WaterVertex
 
 static constexpr int NumTilesX = 1;
 static constexpr int NumTilesZ = 1;
-static constexpr int CellsPerTileX = 255;
-static constexpr int CellsPerTileZ = 255;
+static constexpr int CellsPerTileX = 63;
+static constexpr int CellsPerTileZ = 63;
+static constexpr int HeightmapSize = 512;
 static constexpr int VertsPerTile = (CellsPerTileX + 1) * (CellsPerTileZ + 1);
-static constexpr int VertsPerHeightmap = (CellsPerTileX + 3) * (CellsPerTileZ + 3);
-static constexpr int IndicesPerTile = 2 * 3 * CellsPerTileX * CellsPerTileZ;
-static constexpr float CellSize = 0.05f;
+static constexpr int IndicesPerTile = 4 * CellsPerTileX * CellsPerTileZ;
+static constexpr float CellSize = 0.5f;
 static_assert(VertsPerTile <= (1 << 16), "Index format too small");
 
 
@@ -94,7 +94,7 @@ bool Terrain::Init(Renderer& renderer)
 
     m_texDescIndices[0] = renderer.LoadTexture(m_textures[0], m_intermediateTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
     m_texDescIndices[1] = renderer.LoadTexture(m_textures[1], m_intermediateTexBuffers[1], L"ground_grey_diff_1k.png");
-    m_heightmapTexIndex = renderer.CreateTexture2D(m_heightmapTexture, m_intermediateHeightmapBuffer, CellsPerTileX + 1, CellsPerTileZ + 1, DXGI_FORMAT_R32_FLOAT);
+    m_heightmapTexIndex = renderer.CreateTexture2D(m_heightmapTexture, m_intermediateHeightmapBuffer, HeightmapSize, HeightmapSize, DXGI_FORMAT_R32_FLOAT);
 
     renderer.WaitUploads(renderer.EndUploads());
 
@@ -162,16 +162,16 @@ void Terrain::Render(Renderer& renderer)
     renderer.BindDescriptor(m_texDescIndices[0], RootParam::Texture0);
     renderer.BindDescriptor(m_texDescIndices[1], RootParam::Texture1);
 
-    commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
     // Render the terrain itself.
+    commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     commandList.IASetVertexBuffers(0, 1, &m_vertexBuffer.view);
     commandList.IASetIndexBuffer(&m_indexBuffer.view);
     commandList.DrawIndexedInstanced(IndicesPerTile, 1, 0, 0, 0);
 
     // Render "water".
+    commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList.SetPipelineState(m_waterPipelineState.Get());
-    commandList.IASetVertexBuffers(0, 1, &m_waterVertexBufferView);
+    commandList.IASetVertexBuffers(0, 1, &m_waterVertexBuffer.view);
     commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
     commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
 }
@@ -287,11 +287,13 @@ bool Terrain::LoadCompiledShaders(Renderer& renderer)
 {
     // Production: load precompiled shaders
     ComPtr<ID3DBlob> vertexShader = renderer.LoadCompiledShader(L"TerrainVertex.cso");
+    ComPtr<ID3DBlob> hullShader = renderer.LoadCompiledShader(L"TerrainHull.cso");
+    ComPtr<ID3DBlob> domainShader = renderer.LoadCompiledShader(L"TerrainDomain.cso");
     ComPtr<ID3DBlob> pixelShader = renderer.LoadCompiledShader(L"TerrainPixel.cso");
-    if (!(vertexShader && pixelShader))
+    if (!(vertexShader && hullShader && domainShader && pixelShader))
         return false;
 
-    if (!CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get()))
+    if (!CreatePipelineState(renderer, vertexShader.Get(), hullShader.Get(), domainShader.Get(), pixelShader.Get()))
         return false;
 
     
@@ -308,14 +310,16 @@ bool Terrain::HotloadShaders(Renderer& renderer)
 {
     // Development: compile from files on the fly
     ComPtr<ID3DBlob> vertexShader = renderer.CompileShader(L"TerrainVertex.hlsl", ShaderStage::Vertex);
+    ComPtr<ID3DBlob> hullShader = renderer.CompileShader(L"TerrainHull.hlsl", ShaderStage::Hull);
+    ComPtr<ID3DBlob> domainShader = renderer.CompileShader(L"TerrainDomain.hlsl", ShaderStage::Domain);
     ComPtr<ID3DBlob> pixelShader = renderer.CompileShader(L"TerrainPixel.hlsl", ShaderStage::Pixel);
-    if (!(vertexShader && pixelShader))
+    if (!(vertexShader && hullShader && domainShader && pixelShader))
         return false;
 
     // Force a full CPU/GPU sync then recreate the PSO.
     renderer.WaitCurrentFrame();
 
-    if (!CreatePipelineState(renderer, vertexShader.Get(), pixelShader.Get()))
+    if (!CreatePipelineState(renderer, vertexShader.Get(), hullShader.Get(), domainShader.Get(), pixelShader.Get()))
         return false;
 
     ComPtr<ID3DBlob> waterVertexShader = renderer.CompileShader(L"WaterVertex.hlsl", ShaderStage::Vertex);
@@ -364,7 +368,7 @@ void Terrain::Imgui(Renderer& renderer)
     ImGui::End();
 }
 
-bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader)
+bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* hullShader, ID3DBlob* domainShader, ID3DBlob* pixelShader)
 {
     // Create PSO
     struct PipelineStateStream
@@ -373,6 +377,8 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
         CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT inputLayout;
         CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY primType;
         CD3DX12_PIPELINE_STATE_STREAM_VS vs;
+        CD3DX12_PIPELINE_STATE_STREAM_HS hs;
+        CD3DX12_PIPELINE_STATE_STREAM_DS ds;
         CD3DX12_PIPELINE_STATE_STREAM_PS ps;
         CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
@@ -392,8 +398,10 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
     PipelineStateStream pipelineStateStream;
     pipelineStateStream.rootSignature = &renderer.GetRootSignature();
     pipelineStateStream.inputLayout = { inputLayout, (UINT)std::size(inputLayout) };
-    pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader);
+    pipelineStateStream.hs = CD3DX12_SHADER_BYTECODE(hullShader);
+    pipelineStateStream.ds = CD3DX12_SHADER_BYTECODE(domainShader);
     pipelineStateStream.ps = CD3DX12_SHADER_BYTECODE(pixelShader);
     pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
     pipelineStateStream.rtvFormats = rtvFormats;
@@ -499,18 +507,16 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
     m_indexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&indexData);
     Assert(indexData);
 
-    // TODO: Consider triangle strips or other topology?
+    // Build quad patches.
     for (int z = 0; z < CellsPerTileZ; ++z)
     {
         for (int x = 0; x < CellsPerTileX; ++x)
         {
-            uint16* p = &indexData[2 * 3 * (CellsPerTileX * z + x)];
+            uint16* p = &indexData[4 * (CellsPerTileX * z + x)];
             p[0] = (CellsPerTileX + 1) * (z + 0) + (x + 0);
-            p[1] = (CellsPerTileX + 1) * (z + 1) + (x + 0);
-            p[2] = (CellsPerTileX + 1) * (z + 1) + (x + 1);
-            p[3] = (CellsPerTileX + 1) * (z + 0) + (x + 0);
-            p[4] = (CellsPerTileX + 1) * (z + 1) + (x + 1);
-            p[5] = (CellsPerTileX + 1) * (z + 0) + (x + 1);
+            p[1] = (CellsPerTileX + 1) * (z + 0) + (x + 1);
+            p[2] = (CellsPerTileX + 1) * (z + 1) + (x + 0);
+            p[3] = (CellsPerTileX + 1) * (z + 1) + (x + 1);
         }
     }
 
@@ -556,10 +562,10 @@ void Terrain::BuildHeightmap(Renderer& renderer)
     // The heightmap has an extra row and column on each side
     // to allow us to smoothly calculate the gradient between tiles (i.e. they overlap).
     m_heightmapData.clear();
-    m_heightmapData.reserve(VertsPerHeightmap);
-    for (int z = 0; z <= CellsPerTileZ; ++z)
+    m_heightmapData.reserve(math::Square(HeightmapSize));
+    for (int z = 0; z < HeightmapSize; ++z)
     {
-        for (int x = 0; x <= CellsPerTileX; ++x)
+        for (int x = 0; x < HeightmapSize; ++x)
         {
             m_heightmapData.push_back(GenerateHeight(x, z));
         }
@@ -569,8 +575,8 @@ void Terrain::BuildHeightmap(Renderer& renderer)
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
     D3D12_SUBRESOURCE_DATA data;
     data.pData = m_heightmapData.data();
-    data.RowPitch = (CellsPerTileX + 1) * sizeof(float);
-    data.SlicePitch = data.RowPitch * (CellsPerTileZ + 1);
+    data.RowPitch = HeightmapSize * sizeof(float);
+    data.SlicePitch = data.RowPitch * HeightmapSize;
     ::UpdateSubresources<1>(&commandList, m_heightmapTexture.Get(), m_intermediateHeightmapBuffer.Get(), 0, 0, 1, &data);
 }
 
