@@ -31,7 +31,7 @@ enum E
     VSSharedConstants,
     PSSharedConstants,
     PSConstantBuffer,
-    StaticSamplerState,
+    VertexTexture0,
     Texture0, // TODO: Could combine these into a single descriptor table, if we
     Texture1, //       can ensure that the descriptors used will be contiguous.
     Count
@@ -68,6 +68,7 @@ public:
     ComPtr<ID3D12Resource> CreateReadbackBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateConstantBuffer(size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
+    [[nodiscard]] int CreateTexture2D(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t width, size_t height, DXGI_FORMAT format);
     [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath);
     [[nodiscard]] UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);

@@ -25,6 +25,7 @@ public:
     void Imgui(Renderer& renderer);
 
 private:
+    /*
     struct Tile
     {
         ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
@@ -34,6 +35,14 @@ private:
         Vec2i dirtyMin = Vec2iZero;
         Vec2i dirtyMax = Vec2iZero;
         int currentBuffer = 0;
+    };
+    */
+
+    struct VertexBuffer
+    {
+        ComPtr<ID3D12Resource> buffer;
+        ComPtr<ID3D12Resource> intermediateBuffer;
+        D3D12_VERTEX_BUFFER_VIEW view = {};
     };
 
     struct IndexBuffer
@@ -59,21 +68,19 @@ private:
     bool CreateWaterPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
-    void BuildTile(Renderer& renderer, int tileX, int tileZ);
+    void BuildVertexBuffer(Renderer& renderer);
+    void BuildHeightmap(Renderer& renderer);
     void BuildWater(Renderer& renderer);
-    void UpdateVertex(TerrainVertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
     float GenerateHeight(int globalX, int globalZ);
-    Vec3f ToVertexPos(int globalX, float height, int globalZ);
-    Vec3f GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
+    Vec2f ToVertexPos(int globalX, int globalZ);
 
-    std::vector<Tile> m_tiles;
-    IndexBuffer m_indexBuffer; // Indices are the same for each tile.
+    std::vector<float> m_heightmapData;
+    VertexBuffer m_vertexBuffer;
+    IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
     int m_seed = 0;
 
-    ComPtr<ID3D12Resource> m_waterVertexBuffer;
-    ComPtr<ID3D12Resource> m_waterIntermediateVertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_waterVertexBufferView;
+    VertexBuffer m_waterVertexBuffer;
     IndexBuffer m_waterIndexBuffer;
 
     ComPtr<ID3D12PipelineState> m_pipelineState;
@@ -82,10 +89,13 @@ private:
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
     int m_texDescIndices[2] = { -1, -1 };
+    int m_heightmapTexIndex = -1;
     bool m_texStateDirty = true;
 
     ComPtr<ID3D12Resource> m_textures[2];
     ComPtr<ID3D12Resource> m_intermediateTexBuffers[2];
+    ComPtr<ID3D12Resource> m_heightmapTexture;
+    ComPtr<ID3D12Resource> m_intermediateHeightmapBuffer;
 
     // Tweakables
     NoiseOctave m_noiseOctaves[4];

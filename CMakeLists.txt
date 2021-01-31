@@ -13,13 +13,20 @@ file(GLOB shaders "data/shaders/*.hlsl")
 set_source_files_properties("data/shaders/SkyboxVertex.hlsl" "data/shaders/TerrainVertex.hlsl" "data/shaders/WaterVertex.hlsl" "data/shaders/DebugVertex.hlsl" PROPERTIES VS_SHADER_TYPE "Vertex")
 set_source_files_properties("data/shaders/SkyboxPixel.hlsl" "data/shaders/TerrainPixel.hlsl" "data/shaders/WaterPixel.hlsl" "data/Shaders/DebugPixel.hlsl" PROPERTIES VS_SHADER_TYPE "Pixel")
 set_source_files_properties("data/shaders/GenerateMips.hlsl" PROPERTIES VS_SHADER_TYPE "Compute")
-set_source_files_properties(${shaders} PROPERTIES VS_SHADER_MODEL "5.1")
+set_source_files_properties(${shaders} PROPERTIES
+    VS_SHADER_MODEL "5.1"
+    VS_SHADER_ENABLE_DEBUG true
+    #VS_SHADER_DISABLE_OPTIMIZATIONS true
+)
 source_group("Shaders" FILES ${shaders})
 
 # Add DirectXTex helpers.
-set(sources ${sources} "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.cpp"
+# TODO: Tidy this up.
+set(sources ${sources} "dependencies/DirectXTex/DirectXTex/DirectXTexUtil.cpp"
+                       "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.cpp"
                        "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.cpp")
-set(headers ${headers} "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.h"
+set(headers ${headers} "dependencies/DirectXTex/DirectXTex/DirectXTex.h"
+                       "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.h"
                        "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.h")
 
 # Imgui.
@@ -42,8 +49,7 @@ target_include_directories(gaia PRIVATE src
     "dependencies/glm" 
     "dependencies/imgui"
     "dependencies/stb" 
-    "dependencies/DirectXTex/WICTextureLoader"
-    "dependencies/DirectXTex/DDSTextureLoader"
+    "dependencies/DirectXTex"
 )
 target_precompile_headers(gaia PRIVATE src/pch.hpp)
 

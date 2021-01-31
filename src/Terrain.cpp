@@ -9,8 +9,7 @@ namespace gaia
 
 struct TerrainVertex
 {
-    Vec3f position;
-    Vec3f normal;
+    Vec2f pos;
 };
 
 struct WaterVertex
@@ -20,8 +19,8 @@ struct WaterVertex
     Vec4u8 colour;
 };
 
-static constexpr int NumTilesX = 2;
-static constexpr int NumTilesZ = 2;
+static constexpr int NumTilesX = 1;
+static constexpr int NumTilesZ = 1;
 static constexpr int CellsPerTileX = 255;
 static constexpr int CellsPerTileZ = 255;
 static constexpr int VertsPerTile = (CellsPerTileX + 1) * (CellsPerTileZ + 1);
@@ -49,7 +48,8 @@ static int HeightmapIndex(int x, int z)
 {
     Assert(-1 <= x && x <= CellsPerTileX + 1);
     Assert(-1 <= z && z <= CellsPerTileZ + 1);
-    return (CellsPerTileX + 3) * (z + 1) + (x + 1);
+    //return (CellsPerTileX + 3) * (z + 1) + (x + 1);
+    return (CellsPerTileX + 1) * z + x;
 }
 
 static Vec2i WorldPosToTile(Vec2f worldPosXZ)
@@ -94,6 +94,7 @@ bool Terrain::Init(Renderer& renderer)
 
     m_texDescIndices[0] = renderer.LoadTexture(m_textures[0], m_intermediateTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
     m_texDescIndices[1] = renderer.LoadTexture(m_textures[1], m_intermediateTexBuffers[1], L"ground_grey_diff_1k.png");
+    m_heightmapTexIndex = renderer.CreateTexture2D(m_heightmapTexture, m_intermediateHeightmapBuffer, CellsPerTileX + 1, CellsPerTileZ + 1, DXGI_FORMAT_R32_FLOAT);
 
     renderer.WaitUploads(renderer.EndUploads());
 
@@ -118,16 +119,9 @@ void Terrain::Build(Renderer& renderer)
         m_seed = rand();
     }
 
-    m_tiles.resize(NumTilesX * NumTilesZ);
-    for (int z = 0; z < NumTilesZ; ++z)
-    {
-        for (int x = 0; x < NumTilesX; ++x)
-        {
-            BuildTile(renderer, x, z);
-        }
-    }
-
+    BuildVertexBuffer(renderer);
     BuildIndexBuffer(renderer);
+    BuildHeightmap(renderer);
     BuildWater(renderer);
 
     m_uploadFenceVal = renderer.EndUploads();
@@ -146,13 +140,17 @@ void Terrain::Render(Renderer& renderer)
 
     if (m_texStateDirty)
     {
+        // After creating the textures, we should transition them to the shader resource states for efficiency.
         for (ComPtr<ID3D12Resource>& tex : m_textures)
         {
-            // After creating the texture, we should transition it to a pixel shader resource for efficiency.
             CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
                 tex.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             commandList.ResourceBarrier(1, &barrier);
         }
+
+        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_heightmapTexture.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        commandList.ResourceBarrier(1, &barrier);
 
         m_texStateDirty = false;
     }
@@ -160,18 +158,16 @@ void Terrain::Render(Renderer& renderer)
     // Set PSO/shader state
     commandList.SetPipelineState(m_pipelineState.Get());
     renderer.BindDescriptor(m_cbufferDescIndex, RootParam::PSConstantBuffer);
+    renderer.BindDescriptor(m_heightmapTexIndex, RootParam::VertexTexture0);
     renderer.BindDescriptor(m_texDescIndices[0], RootParam::Texture0);
     renderer.BindDescriptor(m_texDescIndices[1], RootParam::Texture1);
 
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // Render the terrain itself.
-    for (const Tile& tile : m_tiles)
-    {
-        commandList.IASetVertexBuffers(0, 1, &tile.views[tile.currentBuffer]);
-        commandList.IASetIndexBuffer(&m_indexBuffer.view);
-        commandList.DrawIndexedInstanced(IndicesPerTile, 1, 0, 0, 0);
-    }
+    commandList.IASetVertexBuffers(0, 1, &m_vertexBuffer.view);
+    commandList.IASetIndexBuffer(&m_indexBuffer.view);
+    commandList.DrawIndexedInstanced(IndicesPerTile, 1, 0, 0, 0);
 
     // Render "water".
     commandList.SetPipelineState(m_waterPipelineState.Get());
@@ -182,6 +178,7 @@ void Terrain::Render(Renderer& renderer)
 
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
 {
+#if 0
     // Check buffers not already being uploaded.
     Assert(m_uploadFenceVal == 0);
 
@@ -230,8 +227,8 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
                 {
                     int globalX = x + tileX * CellsPerTileX;
                     int globalZ = z + tileZ * CellsPerTileZ;
-                    Vec3f pos = ToVertexPos(globalX, 0.f, globalZ);
-                    float distSq = math::length2(Vec2f(pos.x, pos.z) - posXZ);
+                    Vec2f pos = ToVertexPos(globalX, globalZ);
+                    float distSq = math::length2(pos - posXZ);
                     tile.heightmap[HeightmapIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
                 }
             }
@@ -283,6 +280,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     }
 
     m_uploadFenceVal = renderer.EndUploads();
+#endif
 }
 
 bool Terrain::LoadCompiledShaders(Renderer& renderer)
@@ -384,9 +382,7 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
 
     // Define vertex layout
     D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
     D3D12_RT_FORMAT_ARRAY rtvFormats = {};
@@ -524,60 +520,58 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
     commandList.CopyBufferRegion(m_indexBuffer.buffer.Get(), 0, m_indexBuffer.intermediateBuffer.Get(), 0, dataSize);
 }
 
-void Terrain::BuildTile(Renderer& renderer, int tileX, int tileZ)
+void Terrain::BuildVertexBuffer(Renderer& renderer)
 {
-    Assert(0 <= tileX && tileX < NumTilesX);
-    Assert(0 <= tileZ && tileZ < NumTilesZ);
-
     size_t dataSize = VertsPerTile * sizeof(TerrainVertex);
-    Tile& tile = m_tiles[TileIndex(tileX, tileZ)];
-    for (int i = 0; i < 2; ++i)
-    {
-        tile.gpuDoubleBuffer[i] = renderer.CreateResidentBuffer(dataSize);
-        tile.views[i].BufferLocation = tile.gpuDoubleBuffer[i]->GetGPUVirtualAddress();
-        tile.views[i].SizeInBytes = (UINT)dataSize;
-        tile.views[i].StrideInBytes = sizeof(TerrainVertex);
-    }
-    tile.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
-    tile.dirtyMin = Vec2i(CellsPerTileX, CellsPerTileZ);
-    tile.dirtyMax = Vec2i(0, 0);
-
-    // Generate heightmap.
-    // The heightmap has an extra row and column on each side
-    // to allow us to smoothly calculate the gradient between tiles (i.e. they overlap).
-    tile.heightmap.clear();
-    tile.heightmap.reserve(VertsPerHeightmap);
-    for (int z = -1; z <= CellsPerTileZ + 1; ++z)
-    {
-        for (int x = -1; x <= CellsPerTileX + 1; ++x)
-        {
-            int globalX = x + tileX * CellsPerTileX;
-            int globalZ = z + tileZ * CellsPerTileZ;
-            tile.heightmap.push_back(GenerateHeight(globalX, globalZ));
-        }
-    }
+    m_vertexBuffer.buffer = renderer.CreateResidentBuffer(dataSize);
+    m_vertexBuffer.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
+    m_vertexBuffer.view.BufferLocation = m_vertexBuffer.buffer->GetGPUVirtualAddress();
+    m_vertexBuffer.view.SizeInBytes = (UINT)dataSize;
+    m_vertexBuffer.view.StrideInBytes = sizeof(TerrainVertex);
 
     // Map buffer and fill in vertex data.
     TerrainVertex* vertexData = nullptr;
-    tile.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
+    m_vertexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
     Assert(vertexData);
 
     for (int z = 0; z <= CellsPerTileZ; ++z)
     {
         for (int x = 0; x <= CellsPerTileX; ++x)
         {
-            UpdateVertex(vertexData, tile.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
+            TerrainVertex& v = vertexData[VertexIndex(x, z)];
+            v.pos = ToVertexPos(x, z);
         }
     }
 
-    tile.intermediateBuffer->Unmap(0, nullptr);
+    m_vertexBuffer.intermediateBuffer->Unmap(0, nullptr);
 
     // Upload initial data to both buffers.
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    for (const ComPtr<ID3D12Resource>& buf : tile.gpuDoubleBuffer)
+    commandList.CopyBufferRegion(m_vertexBuffer.buffer.Get(), 0, m_vertexBuffer.intermediateBuffer.Get(), 0, dataSize);
+}
+
+void Terrain::BuildHeightmap(Renderer& renderer)
+{
+    // Generate heightmap.
+    // The heightmap has an extra row and column on each side
+    // to allow us to smoothly calculate the gradient between tiles (i.e. they overlap).
+    m_heightmapData.clear();
+    m_heightmapData.reserve(VertsPerHeightmap);
+    for (int z = 0; z <= CellsPerTileZ; ++z)
     {
-        commandList.CopyBufferRegion(buf.Get(), 0, tile.intermediateBuffer.Get(), 0, dataSize);
+        for (int x = 0; x <= CellsPerTileX; ++x)
+        {
+            m_heightmapData.push_back(GenerateHeight(x, z));
+        }
     }
+
+    // Update heightmap texture.
+    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+    D3D12_SUBRESOURCE_DATA data;
+    data.pData = m_heightmapData.data();
+    data.RowPitch = (CellsPerTileX + 1) * sizeof(float);
+    data.SlicePitch = data.RowPitch * (CellsPerTileZ + 1);
+    ::UpdateSubresources<1>(&commandList, m_heightmapTexture.Get(), m_intermediateHeightmapBuffer.Get(), 0, 0, 1, &data);
 }
 
 void Terrain::BuildWater(Renderer& renderer)
@@ -596,26 +590,15 @@ void Terrain::BuildWater(Renderer& renderer)
         0, 2, 3
     };
 
-    renderer.CreateBuffer(m_waterVertexBuffer, m_waterIntermediateVertexBuffer, sizeof(WaterVerts), WaterVerts);
-    m_waterVertexBufferView.BufferLocation = m_waterVertexBuffer->GetGPUVirtualAddress();
-    m_waterVertexBufferView.SizeInBytes = sizeof(WaterVerts);
-    m_waterVertexBufferView.StrideInBytes = sizeof(WaterVertex);
+    renderer.CreateBuffer(m_waterVertexBuffer.buffer, m_waterVertexBuffer.intermediateBuffer, sizeof(WaterVerts), WaterVerts);
+    m_waterVertexBuffer.view.BufferLocation = m_waterVertexBuffer.buffer->GetGPUVirtualAddress();
+    m_waterVertexBuffer.view.SizeInBytes = sizeof(WaterVerts);
+    m_waterVertexBuffer.view.StrideInBytes = sizeof(WaterVertex);
 
     renderer.CreateBuffer(m_waterIndexBuffer.buffer, m_waterIndexBuffer.intermediateBuffer, sizeof(WaterIndices), WaterIndices);
     m_waterIndexBuffer.view.BufferLocation = m_waterIndexBuffer.buffer->GetGPUVirtualAddress();
     m_waterIndexBuffer.view.Format = DXGI_FORMAT_R16_UINT;
     m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);
-}
-
-void Terrain::UpdateVertex(TerrainVertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)
-{
-    int globalX = vertexCoords.x + tileCoords.x * CellsPerTileX;
-    int globalZ = vertexCoords.y + tileCoords.y * CellsPerTileZ;
-
-    TerrainVertex& v = mappedVertexData[VertexIndex(vertexCoords.x, vertexCoords.y)];
-    float height = heightmap[HeightmapIndex(vertexCoords.x, vertexCoords.y)];
-    v.position = ToVertexPos(globalX, height, globalZ);
-    v.normal = GenerateNormal(heightmap, vertexCoords, tileCoords);
 }
 
 float Terrain::GenerateHeight(int globalX, int globalZ)
@@ -633,30 +616,11 @@ float Terrain::GenerateHeight(int globalX, int globalZ)
     return height;
 }
 
-Vec3f Terrain::ToVertexPos(int globalX, float height, int globalZ)
+Vec2f Terrain::ToVertexPos(int globalX, int globalZ)
 {
-    return Vec3f(
+    return Vec2f(
         CellSize * ((float)globalX - 0.5f * (float)(CellsPerTileX * NumTilesX)),
-        height,
         CellSize * ((float)globalZ - 0.5f * (float)(CellsPerTileZ * NumTilesZ)));
-}
-
-Vec3f Terrain::GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords)
-{
-    // Sample the heightmap, including the overlapped borders, to find the gradient/normal.
-    // Could probably still do this on the GPU.
-
-    int x = vertexCoords.x;
-    int z = vertexCoords.y;
-    int globalX = x + tileCoords.x * CellsPerTileX;
-    int globalZ = z + tileCoords.y * CellsPerTileZ;
-
-    Vec3f left =  ToVertexPos(globalX - 1, heightmap[HeightmapIndex(x - 1, z    )], globalZ    );
-    Vec3f down =  ToVertexPos(globalX,     heightmap[HeightmapIndex(x,     z - 1)], globalZ - 1);
-    Vec3f right = ToVertexPos(globalX + 1, heightmap[HeightmapIndex(x + 1, z    )], globalZ    );
-    Vec3f up =    ToVertexPos(globalX,     heightmap[HeightmapIndex(x,     z + 1)], globalZ + 1);
-
-    return math::normalize(math::cross(up - down, right - left));
 }
 
 }

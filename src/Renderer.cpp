@@ -1,6 +1,7 @@
 #include "renderer.hpp"
-#include <DDSTextureLoader12.h>
-#include <WICTextureLoader12.h>
+#include <DirectXTex/DirectXTex.h>
+#include <DDSTextureLoader/DDSTextureLoader12.h>
+#include <WICTextureLoader/WICTextureLoader12.h>
 #include <examples/imgui_impl_win32.h>
 #include <examples/imgui_impl_dx12.h>
 #include "CommandQueue.hpp"
@@ -284,7 +285,7 @@ bool Renderer::CreateRootSignature()
     rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
     rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
-    rootParams[RootParam::StaticSamplerState].InitAsConstantBufferView(1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_VERTEX);
+    rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_VERTEX);
     rootParams[RootParam::Texture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
 
@@ -302,7 +303,7 @@ bool Renderer::CreateRootSignature()
     samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
     samplerDesc.ShaderRegister = 0;
     samplerDesc.RegisterSpace = 0;
-    samplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    samplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
@@ -539,6 +540,34 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
     ::UpdateSubresources<1>(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
 }
 
+int Renderer::CreateTexture2D(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t width, size_t height, DXGI_FORMAT format)
+{
+    // Create resident texture.
+    CD3DX12_HEAP_PROPERTIES defaultHeapProps(D3D12_HEAP_TYPE_DEFAULT);
+    CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(format, width, height);
+    m_device->CreateCommittedResource(&defaultHeapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+                                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&textureOut));
+    
+    // Create upload buffer.
+    size_t texelBytes = DirectX::BitsPerPixel(format) >> 3;
+    intermediateBuffer = CreateUploadBuffer(width * height * texelBytes);
+
+    // Allocate an SRV.
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = resourceDesc.Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1; //CountMips(desc.Width, desc.Height);
+
+    for (const ComPtr<ID3D12DescriptorHeap>& heap : m_cbvDescHeaps)
+    {
+        CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(heap->GetCPUDescriptorHandleForHeapStart(), m_nextCBVDescIndex * m_cbvDescriptorSize);
+        m_device->CreateShaderResourceView(textureOut.Get(), &srvDesc, cpuHandle);
+    }
+
+    return m_nextCBVDescIndex++;
+}
+
 int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath)
 {
     // Load the file to a buffer and create the destination texture.
@@ -625,7 +654,7 @@ void Renderer::GenerateMips(ID3D12Resource* texture)
 void Renderer::BindDescriptor(int descIndex, RootParam::E slot)
 {
     Assert(descIndex < m_nextCBVDescIndex);
-    Assert(slot == RootParam::PSConstantBuffer || slot == RootParam::Texture0 || slot == RootParam::Texture1);
+    Assert(slot == RootParam::PSConstantBuffer || (RootParam::VertexTexture0 <= slot && slot <= RootParam::Texture1));
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(m_cbvDescHeaps[m_currentBuffer]->GetGPUDescriptorHandleForHeapStart(), descIndex * m_cbvDescriptorSize);
     m_directCommandList->SetGraphicsRootDescriptorTable(slot, gpuHandle);
