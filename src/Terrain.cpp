@@ -26,7 +26,7 @@ static constexpr int CellsPerTileZ = 63;
 static constexpr int HeightmapSize = 512;
 static constexpr int VertsPerTile = (CellsPerTileX + 1) * (CellsPerTileZ + 1);
 static constexpr int IndicesPerTile = 4 * CellsPerTileX * CellsPerTileZ;
-static constexpr float CellSize = 0.5f;
+static constexpr float CellSize = 0.05f * 64.f;
 static_assert(VertsPerTile <= (1 << 16), "Index format too small");
 
 

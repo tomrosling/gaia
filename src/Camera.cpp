@@ -28,6 +28,9 @@ Mat4f Camera::Update(const Input& input, float dt)
     if (input.IsCharKeyDown('W'))
         translation.z -= m_linSpeed * dt;
 
+    if (input.IsSpecialKeyDown(SpecialKey::Shift))
+        translation *= 5.f;
+
     Mat3f rotMat = math::Mat3fMakeRotationY(m_rot.y) * math::Mat3fMakeRotationX(m_rot.x);
     m_pos += rotMat * translation;
     return math::Mat4fCompose(rotMat, m_pos);
