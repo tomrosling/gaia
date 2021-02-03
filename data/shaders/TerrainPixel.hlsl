@@ -29,7 +29,10 @@ float4 main(DomainShaderOutput IN) : SV_Target
     float2 uv = IN.worldPos.xz * 0.15;
     float3 grass = DiffuseTex0.Sample(StaticSampler, uv).rgb;
     float3 rocks = DiffuseTex1.Sample(StaticSampler, uv).rgb;
-    float3 diffuse = lerp(grass, rocks, saturate(IN.worldPos.y - 0.3));
+    float t = 1.0;
+    t += 0.5 * IN.worldPos.y;
+    t -= 1.5 * IN.nrm.y;
+    float3 diffuse = lerp(grass, rocks, saturate(t));
     diffuse *= ndotl;
 
     // Specular: this is probably awful.

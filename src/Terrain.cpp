@@ -620,7 +620,7 @@ void Terrain::BuildWater(Renderer& renderer)
 
 float Terrain::GenerateHeight(int globalX, int globalZ)
 {
-    float height = 0.5f;
+    float height = 1.5f;
 
     // May be better just to use one of the built in stb_perlin functions
     // to generate multiple octaves, but this is quite nice for now.
