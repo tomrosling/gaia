@@ -153,6 +153,18 @@ bool Renderer::Create(HWND hwnd)
 
     m_cbvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+    // Create stats query resources.
+    D3D12_QUERY_HEAP_DESC queryHeapDesc = {};
+    queryHeapDesc.Count = 1;
+    queryHeapDesc.Type = D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS;
+    if (FAILED(m_device->CreateQueryHeap(&queryHeapDesc, IID_PPV_ARGS(&m_statsQueryHeap))))
+        return false;
+
+    for (auto& buf : m_statsQueryBuffers)
+    {
+        buf = CreateReadbackBuffer(sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS));
+    }
+    
     // Create command allocators
     for (auto& allocator : m_commandAllocators)
     {
@@ -361,6 +373,9 @@ void Renderer::BeginFrame()
     commandAllocator->Reset();
     m_directCommandList->Reset(commandAllocator, nullptr);
 
+    // Start tracking stats for the frame.
+    m_directCommandList->BeginQuery(m_statsQueryHeap.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 0);
+
     // Transition render target and depth buffer to a renderable state
     CD3DX12_RESOURCE_BARRIER rtBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -432,6 +447,10 @@ void Renderer::EndFrame()
     dst.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(dst.PlacedFootprint.Footprint.Width, sizeof(float));
     D3D12_TEXTURE_COPY_LOCATION src = { m_depthBuffer.Get() };
     m_directCommandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+    // Get stats query data.
+    m_directCommandList->EndQuery(m_statsQueryHeap.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 0);
+    m_directCommandList->ResolveQueryData(m_statsQueryHeap.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 0, 1, m_statsQueryBuffers[m_currentBuffer].Get(), 0);
 
     // Submit draw (etc) commands
     m_frameFenceValues[m_currentBuffer] = m_directCommandQueue->Execute(m_directCommandList.Get());
@@ -803,8 +822,36 @@ void Renderer::BeginImguiFrame()
 
 void Renderer::Imgui()
 {
-    ImGui::Begin("Renderer");
-    ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+    if (ImGui::Begin("Renderer"))
+    {
+        ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+        Vec3f camPos = Vec3f(math::affineInverse(m_viewMat)[3]);
+        ImGui::Text("Cam Pos: (%.2f, %.2f, %.2f)", camPos.x, camPos.y, camPos.z);
+
+        if (ImGui::CollapsingHeader("Stats (Direct Command List Only)"))
+        {
+            // Read stats out of the previous frame's buffer.
+            const D3D12_QUERY_DATA_PIPELINE_STATISTICS* stats = nullptr;
+            D3D12_RANGE readRange = { 0, sizeof(*stats) };
+            m_statsQueryBuffers[m_currentBuffer]->Map(0, &readRange, (void**)&stats);
+            Assert(stats);
+
+            ImGui::Text("IAVertices:    %llu", stats->IAVertices);
+            ImGui::Text("IAPrimitives:  %llu", stats->IAPrimitives);
+            ImGui::Text("VSInvocations: %llu", stats->VSInvocations);
+            ImGui::Text("GSInvocations: %llu", stats->GSInvocations);
+            ImGui::Text("GSPrimitives:  %llu", stats->GSPrimitives);
+            ImGui::Text("CInvocations:  %llu", stats->CInvocations);
+            ImGui::Text("CPrimitives:   %llu", stats->CPrimitives);
+            ImGui::Text("PSInvocations: %llu", stats->PSInvocations);
+            ImGui::Text("HSInvocations: %llu", stats->HSInvocations);
+            ImGui::Text("DSInvocations: %llu", stats->DSInvocations);
+            ImGui::Text("CSInvocations: %llu", stats->CSInvocations);
+
+            D3D12_RANGE writeRange = {};
+            m_statsQueryBuffers[m_currentBuffer]->Unmap(0, &writeRange);
+        }
+    }
     ImGui::End();
 }
 

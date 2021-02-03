@@ -126,6 +126,8 @@ private:
     ComPtr<ID3D12CommandAllocator> m_copyCommandAllocator;
     ComPtr<ID3D12CommandAllocator> m_computeCommandAllocator;
     ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12QueryHeap> m_statsQueryHeap;
+    ComPtr<ID3D12Resource> m_statsQueryBuffers[BackbufferCount];
 
     std::unique_ptr<CommandQueue> m_directCommandQueue;
     std::unique_ptr<CommandQueue> m_copyCommandQueue;
