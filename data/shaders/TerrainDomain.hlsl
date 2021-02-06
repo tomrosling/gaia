@@ -26,6 +26,7 @@ struct DomainShaderOutput
     float4 pos : SV_POSITION;
 };
 
+// Find the correct heightmap tile and sample from it (with filtering).
 float SampleHeightmap(float2 uv)
 {
     // Split the UV into integer and fractional components so we can sample a tile.
@@ -37,6 +38,45 @@ float SampleHeightmap(float2 uv)
     int heightmapIndex = heightmapXZ.y * NumTilesXZ + heightmapXZ.x;
     Texture2D heightmap = HeightmapTex[heightmapIndex];
     return heightmap.SampleLevel(HeightmapSampler, uv, 0).r;
+}
+
+// Calcs an approximate normal by sampling around the point.
+// https://github.com/Traagen/Render-Terrain/blob/master/Render%20Terrain/RenderTerrainTessDS.hlsl /
+// http://thedemonthrone.ca/projects/rendering-terrain/rendering-terrain-part-6-adding-camera-controls-and-fixing-normals/
+// Because screw factoring out those cross products myself.
+float3 CalcNormal(float2 uv, float texDim)
+{
+    // Sample slightly further than one texel away from the centre to smooth out wibble,
+    // but we lose a fair bit of detail. Could experiment with increasing this a bit and 
+    // using fewer samples, and it might be better to augment it with detail/normal mapping
+    // in the pixel shader.
+    const float CellSize = 0.05;
+    const float SampleRadius = 1.5;
+    float uvStep = SampleRadius / texDim;
+
+    float2 b = uv + float2(0.0,     -uvStep);
+	float2 c = uv + float2(uvStep,  -uvStep);
+	float2 d = uv + float2(uvStep,  0.0    );
+	float2 e = uv + float2(uvStep,  uvStep );
+	float2 f = uv + float2(0.0,     uvStep );
+	float2 g = uv + float2(-uvStep, uvStep );
+	float2 h = uv + float2(-uvStep, 0.0    );
+	float2 i = uv + float2(-uvStep, -uvStep);
+
+	float zb = SampleHeightmap(b);
+	float zc = SampleHeightmap(c);
+	float zd = SampleHeightmap(d);
+	float ze = SampleHeightmap(e);
+	float zf = SampleHeightmap(f);
+	float zg = SampleHeightmap(g);
+	float zh = SampleHeightmap(h);
+	float zi = SampleHeightmap(i);
+    
+	float x = zg + 2.0 * zh + zi - zc - 2.0 * zd - ze;
+	float y = SampleRadius * CellSize * 8.0f;
+	float z = 2.0 * zb + zc + zi - ze - 2.0 * zf - zg;
+
+	return normalize(float3(x, y, z));
 }
 
 [domain("quad")]
@@ -59,15 +99,7 @@ DomainShaderOutput main(HullShaderConstantOutput input, float2 domain : SV_Domai
     OUT.worldPos = float3(pos2D.x, height, pos2D.y);
  
     OUT.pos = mul(projMat, mul(viewMat, float4(OUT.worldPos, 1.0)));   
-
-    // Calculate normal.
-    // TODO: Filtering is creating artefacts here as the tesselation changes.
-    float uvStep = 1.0 / texDim;
-    float3 up    = float3(0.0,       SampleHeightmap(float2(uv.x, uv.y + uvStep)), CellSize);
-    float3 down  = float3(0.0,       SampleHeightmap(float2(uv.x, uv.y - uvStep)), -CellSize);
-    float3 left  = float3(-CellSize, SampleHeightmap(float2(uv.x - uvStep, uv.y)), 0.0);
-    float3 right = float3(CellSize,  SampleHeightmap(float2(uv.x + uvStep, uv.y)), 0.0);
-    OUT.nrm = normalize(cross(up - down, right - left));
+    OUT.nrm = CalcNormal(uv, texDim);
 
     return OUT;
 }
