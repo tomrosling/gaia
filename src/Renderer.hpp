@@ -36,6 +36,7 @@ enum E
     VertexTexture0,
     Texture0, // TODO: Could combine these into a single descriptor table, if we
     Texture1, //       can ensure that the descriptors used will be contiguous.
+    Sampler0,
     Count
 };
 }
@@ -70,12 +71,18 @@ public:
     ComPtr<ID3D12Resource> CreateReadbackBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateConstantBuffer(size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
-    [[nodiscard]] int CreateTexture2D(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t width, size_t height, DXGI_FORMAT format);
+    
+    // Creates an empty texture. No SRV.
+    void CreateTexture2D(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t width, size_t height, DXGI_FORMAT format);
+
+    // Loads a texture and allocates an SRV.
     [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath);
+
     [[nodiscard]] UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);
     void GenerateMips(ID3D12Resource* texture);
     void BindDescriptor(int descIndex, RootParam::E slot);
+    void BindSampler(int descIndex);
     
     // TODO: This is a bit janky; the root signature is defined externally but the Renderer
     // is still managing the command queue/command list for compute.
@@ -89,6 +96,12 @@ public:
     // so Frees must be reverse ordered to the Allocates.
     [[nodiscard]] int AllocateConstantBufferViews(ID3D12Resource* (&buffers)[BackbufferCount], UINT size);
     void FreeConstantBufferView(int index);
+
+    [[nodiscard]] int AllocateTex2DSRVs(int count, ID3D12Resource** textures, DXGI_FORMAT format);
+    void FreeSRVs(int index, int count);
+
+    [[nodiscard]] int AllocateSampler(const D3D12_SAMPLER_DESC& desc);
+    void FreeSampler(int index);
 
     // Compute descriptors are kept until the compute operation completes, then discarded.
     // TODO: Tidy the whole descriptor heap stuff up.
@@ -117,6 +130,7 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbvDescHeaps[BackbufferCount]; // CRB/SRV/UAV descriptors.
+    ComPtr<ID3D12DescriptorHeap> m_samplerDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_imguiSrvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_computeDescHeap;
     ComPtr<ID3D12Resource> m_renderTargets[BackbufferCount];
@@ -140,10 +154,12 @@ private:
     UINT64 m_frameFenceValues[BackbufferCount] = {};
     UINT64 m_depthReadbackFenceValue = 0;
     int m_nextCBVDescIndex = 0;
+    int m_nextSamplerIndex = 0;
     int m_nextComputeDescIndex = 0;
     int m_currentBuffer = 0;
     UINT m_rtvDescriptorSize = 0;
     UINT m_cbvDescriptorSize = 0;
+    UINT m_samplerDescriptorSize = 0;
     bool m_created = false;
 
     Mat4f m_viewMat = Mat4fIdentity;

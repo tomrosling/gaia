@@ -25,18 +25,19 @@ public:
     void Imgui(Renderer& renderer);
 
 private:
-    /*
     struct Tile
     {
-        ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
-        D3D12_VERTEX_BUFFER_VIEW views[2] = {};
-        ComPtr<ID3D12Resource> intermediateBuffer;
+        //ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
+        //D3D12_VERTEX_BUFFER_VIEW views[2] = {};
+        //ComPtr<ID3D12Resource> intermediateBuffer;
+        //Vec2i dirtyMin = Vec2iZero;
+        //Vec2i dirtyMax = Vec2iZero;
+        //int currentBuffer = 0;
+
         std::vector<float> heightmap;
-        Vec2i dirtyMin = Vec2iZero;
-        Vec2i dirtyMax = Vec2iZero;
-        int currentBuffer = 0;
+        ComPtr<ID3D12Resource> texture;
+        ComPtr<ID3D12Resource> intermediateBuffer;
     };
-    */
 
     struct VertexBuffer
     {
@@ -69,12 +70,12 @@ private:
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
     void BuildVertexBuffer(Renderer& renderer);
-    void BuildHeightmap(Renderer& renderer);
+    void BuildHeightmap(Renderer& renderer, int x, int z);
     void BuildWater(Renderer& renderer);
     float GenerateHeight(int globalX, int globalZ);
     Vec2f ToVertexPos(int globalX, int globalZ);
 
-    std::vector<float> m_heightmapData;
+    std::vector<Tile> m_heightmapTiles;
     VertexBuffer m_vertexBuffer;
     IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
@@ -89,13 +90,12 @@ private:
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
     int m_texDescIndices[2] = { -1, -1 };
-    int m_heightmapTexIndex = -1;
+    int m_baseHeightmapTexIndex = -1;
+    int m_heightmapSamplerDescIndex = -1;
     bool m_texStateDirty = true;
 
     ComPtr<ID3D12Resource> m_textures[2];
     ComPtr<ID3D12Resource> m_intermediateTexBuffers[2];
-    ComPtr<ID3D12Resource> m_heightmapTexture;
-    ComPtr<ID3D12Resource> m_intermediateHeightmapBuffer;
 
     // Tweakables
     NoiseOctave m_noiseOctaves[4];
