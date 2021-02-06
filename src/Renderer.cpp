@@ -479,7 +479,7 @@ ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage st
 
     ComPtr<ID3DBlob> blob;
     ComPtr<ID3DBlob> error;
-    if (FAILED(::D3DCompileFromFile(filename, nullptr, nullptr, "main", stageTargets[(int)stage], 0, 0, &blob, &error)))
+    if (FAILED(::D3DCompileFromFile(filename, nullptr, nullptr, "main", stageTargets[(int)stage], D3DCOMPILE_WARNINGS_ARE_ERRORS, 0, &blob, &error)))
     {
         DebugOut("Failed to load shader '%S':\n\n%s\n\n", filename, error ? error->GetBufferPointer() : "<unknown error>");
         return nullptr;

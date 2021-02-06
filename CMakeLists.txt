@@ -19,6 +19,7 @@ set_source_files_properties(${shaders} PROPERTIES
     VS_SHADER_MODEL "5.1"
     VS_SHADER_ENABLE_DEBUG true
     #VS_SHADER_DISABLE_OPTIMIZATIONS true
+    VS_SHADER_FLAGS "/WX"
 )
 
 # Add DirectXTex helpers.
