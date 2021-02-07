@@ -19,21 +19,14 @@ public:
     bool LoadCompiledShaders(Renderer& renderer);
     bool HotloadShaders(Renderer& renderer);
 
-    void SetHighlightPos(Vec2f posXZ, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->hightlightPosXZ = posXZ; }
+    void SetHighlightPos(Vec2f posXZ, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->highlightPosXZ = posXZ; }
     void SetHighlightRadius(float radius, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->highlightRadiusSq = math::Square(radius); }
 
     void Imgui(Renderer& renderer);
 
 private:
-    struct Tile
+    struct ClipmapLevel
     {
-        //ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
-        //D3D12_VERTEX_BUFFER_VIEW views[2] = {};
-        //ComPtr<ID3D12Resource> intermediateBuffer;
-        //Vec2i dirtyMin = Vec2iZero;
-        //Vec2i dirtyMax = Vec2iZero;
-        //int currentBuffer = 0;
-
         std::vector<float> heightmap;
         ComPtr<ID3D12Resource> texture;
         ComPtr<ID3D12Resource> intermediateBuffer;
@@ -55,7 +48,7 @@ private:
 
     struct TerrainPSConstantBuffer
     {
-        Vec2f hightlightPosXZ;
+        Vec2f highlightPosXZ;
         float highlightRadiusSq;
     };
 
@@ -70,12 +63,12 @@ private:
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
     void BuildVertexBuffer(Renderer& renderer);
-    void BuildHeightmap(Renderer& renderer, int x, int z);
+    void BuildHeightmap(Renderer& renderer, int level);
     void BuildWater(Renderer& renderer);
     float GenerateHeight(int globalX, int globalZ);
     Vec2f ToVertexPos(int globalX, int globalZ);
 
-    std::vector<Tile> m_heightmapTiles;
+    std::vector<ClipmapLevel> m_heightmapTiles;
     VertexBuffer m_vertexBuffer;
     IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;

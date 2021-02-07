@@ -161,6 +161,7 @@ private:
     UINT m_cbvDescriptorSize = 0;
     UINT m_samplerDescriptorSize = 0;
     bool m_created = false;
+    bool m_vsync = true;
 
     Mat4f m_viewMat = Mat4fIdentity;
     Mat4f m_projMat = Mat4fIdentity;

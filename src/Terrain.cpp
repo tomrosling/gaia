@@ -19,8 +19,9 @@ struct WaterVertex
     Vec4u8 colour;
 };
 
-static constexpr int NumTilesX = 2; // TODO: Tidy up/rename. Currently means heightmap tiles.
+static constexpr int NumTilesX = 2; // TODO: Tidy up.
 static constexpr int NumTilesZ = 2; // 
+static constexpr int NumClipLevels = 8;
 static constexpr int CellsPerTileX = 255;
 static constexpr int CellsPerTileZ = 255;
 static constexpr int HeightmapSize = 256;
@@ -95,17 +96,14 @@ bool Terrain::Init(Renderer& renderer)
     m_texDescIndices[0] = renderer.LoadTexture(m_textures[0], m_intermediateTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
     m_texDescIndices[1] = renderer.LoadTexture(m_textures[1], m_intermediateTexBuffers[1], L"ground_grey_diff_1k.png");
 
-    ID3D12Resource* textures[NumTilesX * NumTilesZ] = {};
-    m_heightmapTiles.resize(NumTilesX * NumTilesZ);
-    for (int z = 0; z < NumTilesZ; ++z)
+    // Create a set of clipmap textures.
+    ID3D12Resource* textures[NumClipLevels] = {};
+    m_heightmapTiles.resize(NumClipLevels);
+    for (int level = 0; level < NumClipLevels; ++level)
     {
-        for (int x = 0; x < NumTilesX; ++x)
-        {
-            int index = TileIndex(x, z);
-            Tile& tile = m_heightmapTiles[index];
-            renderer.CreateTexture2D(tile.texture, tile.intermediateBuffer, HeightmapSize, HeightmapSize, DXGI_FORMAT_R32_FLOAT);
-            textures[index] = tile.texture.Get();
-        }
+        ClipmapLevel& tile = m_heightmapTiles[level];
+        renderer.CreateTexture2D(tile.texture, tile.intermediateBuffer, HeightmapSize, HeightmapSize, DXGI_FORMAT_R32_FLOAT);
+        textures[level] = tile.texture.Get();
     }
 
     m_baseHeightmapTexIndex = renderer.AllocateTex2DSRVs((int)std::size(textures), textures, DXGI_FORMAT_R32_FLOAT);
@@ -137,12 +135,9 @@ void Terrain::Build(Renderer& renderer)
     BuildIndexBuffer(renderer);
     BuildWater(renderer);
 
-    for (int z = 0; z < NumTilesZ; ++z)
+    for (int level = 0; level < NumClipLevels; ++level)
     {
-        for (int x = 0; x < NumTilesX; ++x)
-        {
-            BuildHeightmap(renderer, x, z);
-        }
+        BuildHeightmap(renderer, level);
     }
 
     m_uploadFenceVal = renderer.EndUploads();
@@ -169,7 +164,7 @@ void Terrain::Render(Renderer& renderer)
             commandList.ResourceBarrier(1, &barrier);
         }
 
-        for (Tile& tile : m_heightmapTiles)
+        for (ClipmapLevel& tile : m_heightmapTiles)
         {
             CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
                 tile.texture.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -603,19 +598,20 @@ void Terrain::BuildVertexBuffer(Renderer& renderer)
     commandList.CopyBufferRegion(m_vertexBuffer.buffer.Get(), 0, m_vertexBuffer.intermediateBuffer.Get(), 0, dataSize);
 }
 
-void Terrain::BuildHeightmap(Renderer& renderer, int tileX, int tileZ)
+void Terrain::BuildHeightmap(Renderer& renderer, int level)
 {
-    Tile& tile = m_heightmapTiles[TileIndex(tileX, tileZ)];
+    ClipmapLevel& tile = m_heightmapTiles[level];
+    int offset = (HeightmapSize << level) / 2;
 
     // Generate data.
     tile.heightmap.clear();
     tile.heightmap.reserve(math::Square(HeightmapSize));
     for (int z = 0; z < HeightmapSize; ++z)
     {
-        int globalZ = z + tileZ * HeightmapSize;
+        int globalZ = (z << level) - offset;
         for (int x = 0; x < HeightmapSize; ++x)
         {
-            int globalX = x + tileX * HeightmapSize;
+            int globalX = (x << level) - offset;
             tile.heightmap.push_back(GenerateHeight(globalX, globalZ));
         }
     }

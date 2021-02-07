@@ -56,7 +56,7 @@ HullShaderConstantOutput CalcHSPatchConstants(InPatch ip, uint PatchID : SV_Prim
 }
  
 [domain("quad")]
-[partitioning("fractional_even")]
+[partitioning("fractional_odd")]
 [outputtopology("triangle_ccw")]
 [outputcontrolpoints(2)]
 [patchconstantfunc("CalcHSPatchConstants")]

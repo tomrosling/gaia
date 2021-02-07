@@ -286,7 +286,7 @@ bool Renderer::CreateRootSignature()
 
     // Create descriptor tables
     D3D12_DESCRIPTOR_RANGE1 cbvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2);
-    D3D12_DESCRIPTOR_RANGE1 vertexTextureSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0);
+    D3D12_DESCRIPTOR_RANGE1 vertexTextureSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 0);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange0 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange1 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
     D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 1);
@@ -455,7 +455,7 @@ void Renderer::EndFrame()
     m_frameFenceValues[m_currentBuffer] = m_directCommandQueue->Execute(m_directCommandList.Get());
 
     // Present buffer
-    m_swapChain->Present(1, 0);
+    m_swapChain->Present(m_vsync ? 1 : 0, 0);
     m_currentBuffer = m_swapChain->GetCurrentBackBufferIndex();
 
     // Wait for previous frame's fence
@@ -876,6 +876,7 @@ void Renderer::Imgui()
         ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         Vec3f camPos = Vec3f(math::affineInverse(m_viewMat)[3]);
         ImGui::Text("Cam Pos: (%.2f, %.2f, %.2f)", camPos.x, camPos.y, camPos.z);
+        ImGui::Checkbox("VSync", &m_vsync);
 
         if (ImGui::CollapsingHeader("Stats (Direct Command List Only)"))
         {
