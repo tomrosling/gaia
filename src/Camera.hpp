@@ -18,7 +18,7 @@ private:
 
     // Config
     float m_linSpeed = 3.f;
-    Vec2f m_rotSpeed{ 0.35f, 0.3f };
+    Vec2f m_rotSpeed{ 0.0035f, 0.003f }; // Radians per pixel of mouse movement.
 };
 
 }

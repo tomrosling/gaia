@@ -10,7 +10,7 @@ Mat4f Camera::Update(const Input& input, float dt)
     {
         Vec2f mouseDelta = (Vec2f)input.GetMouseDelta();
         Vec2f swizzle(-mouseDelta.y * m_rotSpeed.x, -mouseDelta.x * m_rotSpeed.y);
-        m_rot += dt * swizzle;
+        m_rot += swizzle;
         m_rot.x = std::clamp(m_rot.x, -0.5f * Pif, 0.5f * Pif);
     }
 
