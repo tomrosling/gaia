@@ -6,6 +6,7 @@ cbuffer PSSharedConstants : register(b1)
 cbuffer TerrainPSConstantBuffer : register(b2)
 {
     float2 HighlightPosXZ;
+    float2 ClipmapUVOffset;
     float HighlightRadiusSq;
 };
 

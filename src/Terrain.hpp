@@ -49,6 +49,7 @@ private:
     struct TerrainPSConstantBuffer
     {
         Vec2f highlightPosXZ;
+        Vec2f clipmapUVOffset;
         float highlightRadiusSq;
     };
 
@@ -65,10 +66,12 @@ private:
     void BuildVertexBuffer(Renderer& renderer);
     void BuildHeightmap(Renderer& renderer, int level);
     void BuildWater(Renderer& renderer);
+    void UpdateHeightmapTexture(Renderer& renderer);
+    void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i newTexelOffset);
     float GenerateHeight(int globalX, int globalZ);
     Vec2f ToVertexPos(int globalX, int globalZ);
 
-    std::vector<ClipmapLevel> m_heightmapTiles;
+    std::vector<ClipmapLevel> m_clipmapLevels;
     VertexBuffer m_vertexBuffer;
     IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
@@ -86,6 +89,7 @@ private:
     int m_baseHeightmapTexIndex = -1;
     int m_heightmapSamplerDescIndex = -1;
     bool m_texStateDirty = true;
+    Vec2i m_clipmapTexelOffset = Vec2iZero;
 
     ComPtr<ID3D12Resource> m_textures[2];
     ComPtr<ID3D12Resource> m_intermediateTexBuffers[2];
@@ -94,6 +98,7 @@ private:
     NoiseOctave m_noiseOctaves[4];
     bool m_randomiseSeed = true;
     bool m_wireframeMode = false;
+    bool m_freezeClipmap = false;
 };
 
 }

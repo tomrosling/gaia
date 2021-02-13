@@ -10,16 +10,10 @@
 namespace gaia
 {
 
-static constexpr int TextureAlignment = 256;
 static constexpr int CBufferAlignment = 256;
 static constexpr int NumCBVDescriptors = 32;
 static constexpr int NumComputeDescriptors = 32;
 static constexpr int NumSamplers = 1;
-
-static int GetTexturePitchBytes(int width, int bytesPerTexel)
-{
-    return math::AlignPow2(width * bytesPerTexel, TextureAlignment);
-}
 
 static int CountMips(int width, int height)
 {
@@ -294,7 +288,7 @@ bool Renderer::CreateRootSignature()
     CD3DX12_ROOT_PARAMETER1 rootParams[RootParam::Count];
     rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_ALL); // TODO: tidy up or rename! We're running out of root signature space. They should probably be in a cbuffer instead.
     rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 1, 0, D3D12_SHADER_VISIBILITY_ALL); //
-    rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_ALL); // TODO: Rename!
     rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &vertexTextureSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
     rootParams[RootParam::Texture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
@@ -437,7 +431,6 @@ void Renderer::EndFrame()
     D3D12_TEXTURE_COPY_LOCATION dst;
     dst.pResource = m_depthReadbackBuffer.Get(),
     dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    dst.PlacedFootprint.Footprint;
     dst.PlacedFootprint.Offset = 0;
     dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_D32_FLOAT;
     dst.PlacedFootprint.Footprint.Width = (UINT)m_viewport.Width;

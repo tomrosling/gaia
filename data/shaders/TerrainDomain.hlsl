@@ -3,6 +3,13 @@ cbuffer VSSharedConstants : register(b0)
     matrix viewMat;
     matrix projMat;
 };
+
+cbuffer TerrainPSConstantBuffer : register(b2)
+{
+    float2 HighlightPosXZ;
+    float2 ClipmapUVOffset;
+    float HighlightRadiusSq;
+};
  
 struct HullShaderControlPointOutput
 {
@@ -16,7 +23,9 @@ struct HullShaderConstantOutput
 };
 
 static const int NumClipLevels = 8;
-static const float InvTextureRes = 1.0 / 256.0;
+static const int HeightmapSize = 256;
+static const float InvTextureRes = 1.0 / (float)HeightmapSize;
+static const float HalfTexel = 0.5 * InvTextureRes;
 Texture2D HeightmapTex[NumClipLevels] : register(t0);
 SamplerState HeightmapSampler : register(s1); 
 
@@ -33,7 +42,6 @@ float SampleHeightmapLevel(float2 uv, int clipLevel)
     uv /= (float)(1 << clipLevel);
 
     // Translate to actual texture coordinates.
-    const float HalfTexel = 0.5 * InvTextureRes;
     uv += float2(0.5, 0.5);
     uv += float2(HalfTexel, HalfTexel);
 
@@ -44,11 +52,21 @@ float SampleHeightmapLevel(float2 uv, int clipLevel)
 // Find the correct heightmap tile and sample from it (with filtering).
 float SampleHeightmap(float2 uv)
 {
-    // Get the maximum absolute UV coordinate to pick a clipmap level and scale down.
-    float maxCoord = max(abs(uv.x), abs(uv.y));
+    // Translate the UV relative to our offset, i.e. get the UV distance from the current clipmap centre.
+    // Then get the maximum absolute coordinate to pick a clipmap level and scale down.
+    float2 offsetUV = uv - ClipmapUVOffset;
+    float maxCoord = max(abs(offsetUV.x), abs(offsetUV.y));
     float logMaxCoord = log2(4.0 * maxCoord);
-    int clipLevel = (int)max(0.0, logMaxCoord);
-    clipLevel = min(NumClipLevels, clipLevel);
+
+    // We need to leave a few texels of border (on each side, hence * 2) for a few reasons:
+    // 1. One because the upload is clamped to the nearest integer texel.
+    // 2. One to prevent sampling interpolating across the wrap boundary.
+    // 3. I have no idea why it needs more than 2 after quite some time of looking, but 3 does the trick. Possibly an off-by-one error somewhere.
+    // (4). Should probably add at least one more to prevent thrashing if the camera jitters on a boundary at all.
+    // However the blend between levels mostly gets rid of this anyway so it's kinda moot.
+    logMaxCoord += 3.0 * 2.0 * InvTextureRes;
+
+    int clipLevel = clamp((int)logMaxCoord, 0, NumClipLevels);
     float s0 = SampleHeightmapLevel(uv, clipLevel);
 
     // Smooth out jumps in detail by blending into the lower clip level.

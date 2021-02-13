@@ -1,3 +1,4 @@
+#pragma once
 #define GLM_FORCE_EXPLICIT_CTOR
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -56,34 +57,34 @@ using namespace glm;
 
 // Define some of our own:
 template<typename T>
-inline T Square(T x)
+constexpr inline T Square(T x)
 {
     return x * x;
 }
 
 template<typename T>
-inline T Lerp(T a, T b, float t)
+constexpr inline T Lerp(T a, T b, float t)
 {
     Assert(0.f <= t && t <= 1.f);
     return a + (T)(t * (b - a));
 }
 
 template<typename T>
-inline bool IsPow2(T n)
+constexpr inline bool IsPow2(T n)
 {
     Assert(n != 0);
     return (n & (n - 1)) == 0;
 }
 
 template<typename T>
-inline T AlignPow2(T n, T align)
+constexpr inline T AlignPow2(T n, T align)
 {
     Assert(IsPow2(align));
-    return (n + align) & ~(align - 1);
+    return (n + align - 1) & ~(align - 1);
 }
 
 // https://stackoverflow.com/a/24748637
-inline int ILog2(int32 n)
+constexpr inline int ILog2(int32 n)
 {
 #define S(k)           \
     if (n >= (1 << k)) \

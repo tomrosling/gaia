@@ -55,6 +55,7 @@ public:
     int GetCurrentBuffer() const { return m_currentBuffer; }
 
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
+    const Mat4f& GetViewMatrix() const { return m_viewMat; }
 
     ID3D12Device2& GetDevice() { Assert(m_device); return *m_device.Get(); }
     ID3D12RootSignature& GetRootSignature() { Assert(m_rootSignature); return *m_rootSignature.Get(); }

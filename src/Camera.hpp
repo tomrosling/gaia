@@ -13,7 +13,7 @@ public:
 
 private:
     // State
-    Vec3f m_pos{ 0.f, 3.f, 10.f };
+    Vec3f m_pos{ 0.f, 3.f, 0.f };
     Vec2f m_rot = Vec2fZero;
 
     // Config

@@ -20,5 +20,5 @@
 #include <imgui.h>
 
 #include "GaiaDefs.hpp"
-#include "GaiaUtils.hpp"
 #include "GaiaMath.hpp"
+#include "GaiaUtils.hpp"
