@@ -85,14 +85,14 @@ private:
     ComPtr<ID3D12Resource> m_constantBuffers[BackbufferCount];
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
-    int m_texDescIndices[2] = { -1, -1 };
+    int m_diffuseTexDescIndices[2] = { -1, -1 };
     int m_baseHeightmapTexIndex = -1;
     int m_heightmapSamplerDescIndex = -1;
-    bool m_texStateDirty = true;
+    bool m_diffuseTexStateDirty = true;
     Vec2i m_clipmapTexelOffset = Vec2iZero;
 
-    ComPtr<ID3D12Resource> m_textures[2];
-    ComPtr<ID3D12Resource> m_intermediateTexBuffers[2];
+    ComPtr<ID3D12Resource> m_diffuseTextures[2];
+    ComPtr<ID3D12Resource> m_intermediateDiffuseTexBuffers[2];
 
     // Tweakables
     NoiseOctave m_noiseOctaves[4];

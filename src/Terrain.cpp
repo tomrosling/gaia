@@ -103,8 +103,8 @@ bool Terrain::Init(Renderer& renderer)
 
     renderer.BeginUploads();
 
-    m_texDescIndices[0] = renderer.LoadTexture(m_textures[0], m_intermediateTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
-    m_texDescIndices[1] = renderer.LoadTexture(m_textures[1], m_intermediateTexBuffers[1], L"ground_grey_diff_1k.png");
+    m_diffuseTexDescIndices[0] = renderer.LoadTexture(m_diffuseTextures[0], m_intermediateDiffuseTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
+    m_diffuseTexDescIndices[1] = renderer.LoadTexture(m_diffuseTextures[1], m_intermediateDiffuseTexBuffers[1], L"ground_grey_diff_1k.png");
 
     // Create a set of clipmap textures.
     ID3D12Resource* textures[NumClipLevels] = {};
@@ -123,10 +123,10 @@ bool Terrain::Init(Renderer& renderer)
     // Must be done after upload has completed!
     // TODO: Expose m_d3d12CommandQueue->Wait(other.m_d3d12Fence.Get(), other.m_FenceValue)
     //       via some kind of CommandQueue::GPUWait() interface!
-    m_intermediateTexBuffers[0] = nullptr;
-    m_intermediateTexBuffers[1] = nullptr;
-    renderer.GenerateMips(m_textures[0].Get());
-    renderer.GenerateMips(m_textures[1].Get());
+    m_intermediateDiffuseTexBuffers[0] = nullptr;
+    m_intermediateDiffuseTexBuffers[1] = nullptr;
+    renderer.GenerateMips(m_diffuseTextures[0].Get());
+    renderer.GenerateMips(m_diffuseTextures[1].Get());
 
     return LoadCompiledShaders(renderer);
 }
@@ -172,25 +172,25 @@ void Terrain::Render(Renderer& renderer)
 
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
 
-    if (m_texStateDirty)
+    if (m_diffuseTexStateDirty)
     {
         // After creating the textures, we should transition them to the shader resource states for efficiency.
-        for (ComPtr<ID3D12Resource>& tex : m_textures)
+        for (ComPtr<ID3D12Resource>& tex : m_diffuseTextures)
         {
             CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
                 tex.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             commandList.ResourceBarrier(1, &barrier);
         }
 
-        m_texStateDirty = false;
+        m_diffuseTexStateDirty = false;
     }
 
     // Set PSO/shader state
     commandList.SetPipelineState(m_pipelineState.Get());
     renderer.BindDescriptor(m_cbufferDescIndex, RootParam::PSConstantBuffer);
     renderer.BindDescriptor(m_baseHeightmapTexIndex, RootParam::VertexTexture0);
-    renderer.BindDescriptor(m_texDescIndices[0], RootParam::Texture0);
-    renderer.BindDescriptor(m_texDescIndices[1], RootParam::Texture1);
+    renderer.BindDescriptor(m_diffuseTexDescIndices[0], RootParam::Texture0);
+    renderer.BindDescriptor(m_diffuseTexDescIndices[1], RootParam::Texture1);
     renderer.BindSampler(m_heightmapSamplerDescIndex);
 
     // Render the terrain itself.
