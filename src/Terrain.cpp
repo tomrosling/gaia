@@ -133,6 +133,9 @@ bool Terrain::Init(Renderer& renderer)
 
 void Terrain::Build(Renderer& renderer)
 {
+    // Ensure offset is up to date.
+    m_clipmapTexelOffset = CalcClipmapTexelOffset(renderer.GetCamPos());
+
     renderer.BeginUploads();
 
     // Note: rand() is not seeded so this is still deterministic, for now.
@@ -145,9 +148,10 @@ void Terrain::Build(Renderer& renderer)
     BuildIndexBuffer(renderer);
     BuildWater(renderer);
 
+    // Generate clipmap height data.
     for (int level = 0; level < NumClipLevels; ++level)
     {
-        BuildHeightmap(renderer, level);
+        UpdateHeightmapTextureLevel(renderer, level, -Vec2i(INT_MAX, INT_MAX) / 2, m_clipmapTexelOffset);
     }
 
     m_uploadFenceVal = renderer.EndUploads();
@@ -209,16 +213,7 @@ void Terrain::Render(Renderer& renderer)
 
 void Terrain::UpdateHeightmapTexture(Renderer& renderer)
 {
-    Vec3f camPos(math::affineInverse(renderer.GetViewMatrix())[3]);
-
-    auto IFloorDivf = [](float x, float y)
-    {
-        return (int)floorf(x / y);
-    };
-
-    // Find how many (whole) texels at level 0 in world space we are from the origin.
-    // TODO: Store the previous transition direction and fudge to prevent unnecessary jitter.
-    Vec2i newTexelOffset(IFloorDivf(camPos.x, TexelSize), IFloorDivf(camPos.z, TexelSize));
+    Vec2i newTexelOffset = CalcClipmapTexelOffset(renderer.GetCamPos());
     if (m_clipmapTexelOffset == newTexelOffset)
         return;
 
@@ -227,14 +222,14 @@ void Terrain::UpdateHeightmapTexture(Renderer& renderer)
 
     for (int i = 0; i < NumClipLevels; ++i)
     {
-        UpdateHeightmapTextureLevel(renderer, i, newTexelOffset);
+        UpdateHeightmapTextureLevel(renderer, i, m_clipmapTexelOffset, newTexelOffset);
     }
 
     m_uploadFenceVal = renderer.EndUploads();
     m_clipmapTexelOffset = newTexelOffset;
 }
  
-void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i newTexelOffset)
+void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset)
 {
     // Update the clipmap at the given level.
     // Texturing is done toroidally, so when the camera moves we replace the furthest slice
@@ -244,36 +239,37 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i n
     // across the edge of the texture. A good overview of clipmaps:
     // https://developer.nvidia.com/gpugems/gpugems2/part-i-geometric-complexity/chapter-2-terrain-rendering-using-gpu-based-geometry
 
-    // Calculate dirty region in (level 0) world texel space.
+    // Check we've moved far enough to trigger an update at this level.
+    oldTexelOffset >>= level;
+    newTexelOffset >>= level;
+    if (oldTexelOffset == newTexelOffset)
+        return;
+
+    // Calculate dirty region in texel space for this clip level.
     // All "regions" in this function actually represent a cross in the texture
     // as described above.
-    const Vec2i fullSize(HeightmapSize << level, HeightmapSize << level);
+    const Vec2i fullSize(HeightmapSize, HeightmapSize);
     const Vec2i halfSize = fullSize / 2;
-    Vec2i deltaSign = math::sign(newTexelOffset - m_clipmapTexelOffset);
-    Vec2i worldUploadRegionMin = m_clipmapTexelOffset + halfSize + deltaSign * halfSize;
-    Vec2i worldUploadRegionMax = newTexelOffset       + halfSize + deltaSign * halfSize;
+    Vec2i deltaSign = math::sign(newTexelOffset - oldTexelOffset);
+    Vec2i worldUploadRegionMin = oldTexelOffset + halfSize + deltaSign * halfSize;
+    Vec2i worldUploadRegionMax = newTexelOffset + halfSize + deltaSign * halfSize;
     for (int i = 0; i < 2; ++i)
     {
+        // Ensure min < max and limit the upload in case we teleported more than the width of the whole texture.
         if (worldUploadRegionMax[i] < worldUploadRegionMin[i])
         {
             std::swap(worldUploadRegionMin[i], worldUploadRegionMax[i]);
+            worldUploadRegionMax[i] = std::min(worldUploadRegionMax[i], worldUploadRegionMin[i] + HeightmapSize);
         }
-
-        // Limit the upload in case we teleported more than the width of the whole texture.
-        worldUploadRegionMin[i] = std::max(worldUploadRegionMin[i], worldUploadRegionMax[i] - (HeightmapSize << level) + 1);
+        else
+        {
+            worldUploadRegionMin[i] = std::max(worldUploadRegionMin[i], worldUploadRegionMax[i] - HeightmapSize);
+        }
     }
 
     // Calculate the whole world texel region that we want for the clip level.
     Vec2i wantRegionMin = newTexelOffset;
-    Vec2i wantRegionMax = newTexelOffset + fullSize - Vec2i(1, 1);
-
-    // Calculate the region of the texture we will write to (possibly wrapping across the edge).
-    Vec2i texUploadRegionMin(WrapHeightmapCoords(worldUploadRegionMin >> level));
-    Vec2i texUploadRegionMax(WrapHeightmapCoords(worldUploadRegionMax >> level));
-
-    // Check we've moved far enough to trigger an update at this level.
-    if (texUploadRegionMin == texUploadRegionMax)
-        return;
+    Vec2i wantRegionMax = newTexelOffset + fullSize;
 
     // Map the intermediate buffer.
     ClipmapLevel& levelData = m_clipmapLevels[level];
@@ -286,30 +282,34 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i n
     // TODO: We don't really need to address this buffer as if it were the actual texture; 
     // we could just write to the start of it every time or use a ring buffer.
     // Is a buffer even appropriate or should it be a texture (and use WriteToSubresource instead)?
-    auto WriteRegion = [this, halfSize](float* mappedData, int level, Vec2i min, Vec2i max)
+    auto WriteRegion = [this](float* mappedData, int level, Vec2i min, Vec2i max)
     {
-        // Scale and round down to level-global coords.
-        min >>= level;
-        max >>= level;
-
-        for (int z = min.y; z <= max.y; ++z)
+        for (int z = min.y; z < max.y; ++z)
         {
-            for (int x = min.x; x <= max.x; ++x)
+            for (int x = min.x; x < max.x; ++x)
             {
                 Vec2i levelGlobalCoords(x, z);
-
-                // Scale back up to global coords and offset since tiling is centred at the origin.
-                Vec2i globalCoords = (Vec2i(x, z) << level) - halfSize;
-
-                // Calculate local coords.
                 Vec2i texCoords = WrapHeightmapCoords(levelGlobalCoords);
-
-                mappedData[HeightmapIndex(texCoords.x, texCoords.y)] = GenerateHeight(globalCoords.x, globalCoords.y);
+                mappedData[HeightmapIndex(texCoords.x, texCoords.y)] = GenerateHeight(levelGlobalCoords, level);
             }
         }
     };
-    WriteRegion(mappedData, level, Vec2i(worldUploadRegionMin.x, wantRegionMin.y), Vec2i(worldUploadRegionMax.x, wantRegionMax.y));
-    WriteRegion(mappedData, level, Vec2i(wantRegionMin.x, worldUploadRegionMin.y), Vec2i(wantRegionMax.x, worldUploadRegionMax.y));
+
+    if ((worldUploadRegionMax.x - worldUploadRegionMin.x == HeightmapSize) || (worldUploadRegionMax.y - worldUploadRegionMin.y == HeightmapSize))
+    {
+        // If we need to copy the whole texture, just do it once.
+        WriteRegion(mappedData, level, worldUploadRegionMin, worldUploadRegionMin + fullSize);
+    }
+    else
+    {
+        // Else copy the two (wrapping) slices.
+        WriteRegion(mappedData, level, Vec2i(worldUploadRegionMin.x, wantRegionMin.y), Vec2i(worldUploadRegionMax.x, wantRegionMax.y));
+        WriteRegion(mappedData, level, Vec2i(wantRegionMin.x, worldUploadRegionMin.y), Vec2i(wantRegionMax.x, worldUploadRegionMax.y));
+    }
+
+    // Calculate the region of the texture we will write to (possibly wrapping across the edge).
+    Vec2i texUploadRegionMin(WrapHeightmapCoords(worldUploadRegionMin));
+    Vec2i texUploadRegionMax(WrapHeightmapCoords(worldUploadRegionMax));
 
     if (texUploadRegionMin.x == texUploadRegionMax.x && texUploadRegionMin.y < texUploadRegionMax.y)
     {
@@ -352,6 +352,13 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i n
         commandList.CopyTextureRegion(&dst, box.left, box.top, 0, &src, &box);
     };
 
+    // Copy the whole thing because we moved the whole width or height of the texture.
+    if (worldUploadRegionMin.x + HeightmapSize == worldUploadRegionMax.x || worldUploadRegionMin.y + HeightmapSize == worldUploadRegionMax.y)
+    {
+        CopyBox(Vec2iZero, fullSize);
+        return;
+    }
+
     // Copy vertical slice(s).
     if (texUploadRegionMin.x < texUploadRegionMax.x)
     {
@@ -365,7 +372,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i n
     }
 
     // Copy horizontal slice(s).
-    if (texUploadRegionMin.y < texUploadRegionMax.y)
+    if (texUploadRegionMin.y <= texUploadRegionMax.y)
     {
         CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapSize, texUploadRegionMax.y + 1));
     }
@@ -780,33 +787,6 @@ void Terrain::BuildVertexBuffer(Renderer& renderer)
     commandList.CopyBufferRegion(m_vertexBuffer.buffer.Get(), 0, m_vertexBuffer.intermediateBuffer.Get(), 0, dataSize);
 }
 
-void Terrain::BuildHeightmap(Renderer& renderer, int level)
-{
-    ClipmapLevel& tile = m_clipmapLevels[level];
-    int offset = (HeightmapSize << level) / 2;
-
-    // Generate data.
-    tile.heightmap.clear();
-    tile.heightmap.reserve(math::Square(HeightmapSize));
-    for (int z = 0; z < HeightmapSize; ++z)
-    {
-        int globalZ = (z << level) - offset;
-        for (int x = 0; x < HeightmapSize; ++x)
-        {
-            int globalX = (x << level) - offset;
-            tile.heightmap.push_back(GenerateHeight(globalX, globalZ));
-        }
-    }
-
-    // Update heightmap texture.
-    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    D3D12_SUBRESOURCE_DATA data;
-    data.pData = tile.heightmap.data();
-    data.RowPitch = HeightmapSize * sizeof(float);
-    data.SlicePitch = data.RowPitch * HeightmapSize;
-    ::UpdateSubresources<1>(&commandList, tile.texture.Get(), tile.intermediateBuffer.Get(), 0, 0, 1, &data);
-}
-
 void Terrain::BuildWater(Renderer& renderer)
 {
     const float HalfGridSizeX = 0.5f * CellSize * (float)(CellsPerTileX);// * NumTilesX);
@@ -834,8 +814,25 @@ void Terrain::BuildWater(Renderer& renderer)
     m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);
 }
 
-float Terrain::GenerateHeight(int globalX, int globalZ)
+float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level)
 {
+    // Scale back up to global coords.
+    Vec2i globalCoords = (levelGlobalCoords << level);
+
+    // Offset since tiling is centred at the origin.
+    globalCoords -= (Vec2i(HeightmapSize, HeightmapSize) << level) / 2;
+
+    // Offset to get the centre of this bigger texel.
+    if (level > 1)
+    {
+        globalCoords += (Vec2i(1, 1) << (level - 1));
+    }
+    Vec2f fGlobalCoords(globalCoords);
+    if (level > 0)
+    {
+        fGlobalCoords += Vec2f(0.5f, 0.5f);
+    }
+
     float height = 1.5f;
 
     // May be better just to use one of the built in stb_perlin functions
@@ -843,7 +840,7 @@ float Terrain::GenerateHeight(int globalX, int globalZ)
     for (int i = 0; i < (int)std::size(m_noiseOctaves); ++i)
     {
         auto [frequency, amplitude] = m_noiseOctaves[i];
-        height += amplitude * stb_perlin_noise3_seed((float)globalX * frequency, 0.f, (float)globalZ * frequency, 0, 0, 0, m_seed + i);
+        height += amplitude * stb_perlin_noise3_seed(fGlobalCoords.x * frequency, 0.f, fGlobalCoords.y * frequency, 0, 0, 0, m_seed + i);
     }
 
     return height;
@@ -854,6 +851,18 @@ Vec2f Terrain::ToVertexPos(int globalX, int globalZ)
     return Vec2f(
         CellSize * ((float)globalX - 0.5f * (float)(CellsPerTileX)),// * NumTilesX)),
         CellSize * ((float)globalZ - 0.5f * (float)(CellsPerTileZ)));// * NumTilesZ)));
+}
+
+Vec2i Terrain::CalcClipmapTexelOffset(const Vec3f& camPos) const
+{
+    // Find how many (whole) texels at level 0 in world space we are from the origin.
+    // TODO: Store the previous transition direction and fudge to prevent unnecessary jitter.
+    auto IFloorDivf = [](float x, float y) 
+    {
+        return (int)floorf(x / y);
+    };
+    return Vec2i(IFloorDivf(camPos.x, TexelSize), IFloorDivf(camPos.z, TexelSize));
+
 }
 
 }

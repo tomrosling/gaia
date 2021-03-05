@@ -56,6 +56,7 @@ public:
 
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
     const Mat4f& GetViewMatrix() const { return m_viewMat; }
+    Vec3f GetCamPos() const { return Vec3f(math::affineInverse(m_viewMat)[3]); }
 
     ID3D12Device2& GetDevice() { Assert(m_device); return *m_device.Get(); }
     ID3D12RootSignature& GetRootSignature() { Assert(m_rootSignature); return *m_rootSignature.Get(); }

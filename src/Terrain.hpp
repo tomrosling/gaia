@@ -27,7 +27,7 @@ public:
 private:
     struct ClipmapLevel
     {
-        std::vector<float> heightmap;
+        //std::vector<float> heightmap;
         ComPtr<ID3D12Resource> texture;
         ComPtr<ID3D12Resource> intermediateBuffer;
     };
@@ -64,12 +64,12 @@ private:
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
     void BuildVertexBuffer(Renderer& renderer);
-    void BuildHeightmap(Renderer& renderer, int level);
     void BuildWater(Renderer& renderer);
     void UpdateHeightmapTexture(Renderer& renderer);
-    void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i newTexelOffset);
-    float GenerateHeight(int globalX, int globalZ);
+    void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
+    float GenerateHeight(Vec2i levelGlobalCoords, int level);
     Vec2f ToVertexPos(int globalX, int globalZ);
+    Vec2i CalcClipmapTexelOffset(const Vec3f& camPos) const;
 
     std::vector<ClipmapLevel> m_clipmapLevels;
     VertexBuffer m_vertexBuffer;
