@@ -19,73 +19,38 @@ struct WaterVertex
     Vec4u8 colour;
 };
 
-static constexpr int NumTilesX = 2; // TODO: Tidy up.
-static constexpr int NumTilesZ = 2; // 
-static constexpr int NumClipLevels = 8;
-static constexpr int CellsPerTileX = 255;
-static constexpr int CellsPerTileZ = 255;
-static constexpr int HeightmapSize = 256;
-static constexpr int VertsPerTile = (CellsPerTileX + 1) * (CellsPerTileZ + 1);
-static constexpr int IndicesPerTile = 4 * CellsPerTileX * CellsPerTileZ;
-static constexpr float TexelSize = 0.05f; // World size of a texel at clip level 0.
-static constexpr float CellSize = 0.05f * 64.f; // World size of a vertex patch. TODO: Rename.
-static constexpr DXGI_FORMAT HeightmapTexFormat = DXGI_FORMAT_R32_FLOAT;
-static_assert(VertsPerTile <= (1 << 16), "Index format too small");
-static_assert(HeightmapSize * sizeof(float) == GetTexturePitchBytes(HeightmapSize, sizeof(float)), "Heightmap size does not meet DX12 alignment requirements");
+static constexpr int VertexGridDimension = 256;                                     // Number of vertices in each dimension of the vertex grid.
+static constexpr int VertexBufferLength = math::Square(VertexGridDimension);        // Number of vertices in the vertex buffer.
+static constexpr int IndexBufferLength = 4 * math::Square(VertexGridDimension - 1); // Number of indices in the index buffer.
+static constexpr int NumClipLevels = 8;                                             // Number of clipmap levels (i.e. number of textures).
+static constexpr int HeightmapDimension = 256;                                      // Dimension of each heightmap texture.
+static constexpr float TexelSize = 0.05f;                                           // World size of a texel at clip level 0.
+static constexpr float VertexPatchSize = 0.05f * 64.f;                              // World size of a vertex patch.
+static constexpr DXGI_FORMAT HeightmapTexFormat = DXGI_FORMAT_R32_FLOAT;            // Texture format for the heightmap.
+static_assert(VertexBufferLength <= (1 << 16), "Index format too small");
+static_assert(HeightmapDimension * sizeof(float) == GetTexturePitchBytes(HeightmapDimension, sizeof(float)), "Heightmap size does not meet DX12 alignment requirements");
 
 
 static int VertexIndex(int x, int z) 
 {
-    Assert(0 <= x && x <= CellsPerTileX);
-    Assert(0 <= z && z <= CellsPerTileZ);
-    return (CellsPerTileX + 1) * z + x;
-}
-
-static int TileIndex(int x, int z)
-{
-    Assert(0 <= x && x <= NumTilesX);
-    Assert(0 <= z && z <= NumTilesZ);
-    return (NumTilesX) * z + x;
+    Assert(0 <= x && x < VertexGridDimension);
+    Assert(0 <= z && z < VertexGridDimension);
+    return VertexGridDimension * z + x;
 }
 
 static int HeightmapIndex(int x, int z)
 {
-    Assert(0 <= x && x < HeightmapSize);
-    Assert(0 <= z && z < HeightmapSize);
-    return HeightmapSize * z + x;
+    Assert(0 <= x && x < HeightmapDimension);
+    Assert(0 <= z && z < HeightmapDimension);
+    return HeightmapDimension * z + x;
 }
 
 static Vec2i WrapHeightmapCoords(Vec2i levelGlobalCoords)
 {
     // Turns a "world" UV coordinate into a local one.
     // This is a mod operation that always returns a positive result.
-    static_assert(math::IsPow2(HeightmapSize), "HeightmapSize must be a power of 2");
-    return levelGlobalCoords & (HeightmapSize - 1);
-}
-
-static Vec2i WorldPosToTile(Vec2f worldPosXZ)
-{
-    // Account for the world being centred.
-    // Probably remove this in future.
-    worldPosXZ.x += 0.5f * CellSize * (float)(CellsPerTileX * NumTilesX);
-    worldPosXZ.y += 0.5f * CellSize * (float)(CellsPerTileZ * NumTilesZ);
-
-    return Vec2i((int)floorf(worldPosXZ.x / (CellSize * (float)CellsPerTileX)),
-                 (int)floorf(worldPosXZ.y / (CellSize * (float)CellsPerTileZ)));
-}
-
-static Vec2i WorldPosToCell(Vec2f worldPosXZ, Vec2i tileCoords)
-{
-    // Account for the world being centred.
-    // Probably remove this in future.
-    worldPosXZ.x += 0.5f * CellSize * (float)(CellsPerTileX * NumTilesX);
-    worldPosXZ.y += 0.5f * CellSize * (float)(CellsPerTileZ * NumTilesZ);
-
-    Vec2i cellPos((int)floorf(worldPosXZ.x / CellSize),
-                  (int)floorf(worldPosXZ.y / CellSize));
-    cellPos -= Vec2i(tileCoords.x * CellsPerTileX, tileCoords.y * CellsPerTileZ);
-
-    return cellPos;
+    static_assert(math::IsPow2(HeightmapDimension), "HeightmapDimension must be a power of 2");
+    return levelGlobalCoords & (HeightmapDimension - 1);
 }
 
 
@@ -112,7 +77,7 @@ bool Terrain::Init(Renderer& renderer)
     for (int level = 0; level < NumClipLevels; ++level)
     {
         ClipmapLevel& tile = m_clipmapLevels[level];
-        renderer.CreateTexture2D(tile.texture, tile.intermediateBuffer, HeightmapSize, HeightmapSize, HeightmapTexFormat);
+        renderer.CreateTexture2D(tile.texture, tile.intermediateBuffer, HeightmapDimension, HeightmapDimension, HeightmapTexFormat);
         textures[level] = tile.texture.Get();
     }
 
@@ -165,7 +130,7 @@ void Terrain::Render(Renderer& renderer)
     }
 
     // Update shader UV offset.
-    m_mappedConstantBuffers[renderer.GetCurrentBuffer()]->clipmapUVOffset = Vec2f(m_clipmapTexelOffset) / (float)HeightmapSize;
+    m_mappedConstantBuffers[renderer.GetCurrentBuffer()]->clipmapUVOffset = Vec2f(m_clipmapTexelOffset) / (float)HeightmapDimension;
 
     // Wait for any pending uploads.
     if (m_uploadFenceVal != 0)
@@ -201,7 +166,7 @@ void Terrain::Render(Renderer& renderer)
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
     commandList.IASetVertexBuffers(0, 1, &m_vertexBuffer.view);
     commandList.IASetIndexBuffer(&m_indexBuffer.view);
-    commandList.DrawIndexedInstanced(IndicesPerTile, 1, 0, 0, 0);
+    commandList.DrawIndexedInstanced(IndexBufferLength, 1, 0, 0, 0);
 
     // Render "water".
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -248,7 +213,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     // Calculate dirty region in texel space for this clip level.
     // All "regions" in this function actually represent a cross in the texture
     // as described above.
-    const Vec2i fullSize(HeightmapSize, HeightmapSize);
+    const Vec2i fullSize(HeightmapDimension, HeightmapDimension);
     const Vec2i halfSize = fullSize / 2;
     Vec2i deltaSign = math::sign(newTexelOffset - oldTexelOffset);
     Vec2i worldUploadRegionMin = oldTexelOffset + halfSize + deltaSign * halfSize;
@@ -259,11 +224,11 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
         if (worldUploadRegionMax[i] < worldUploadRegionMin[i])
         {
             std::swap(worldUploadRegionMin[i], worldUploadRegionMax[i]);
-            worldUploadRegionMax[i] = std::min(worldUploadRegionMax[i], worldUploadRegionMin[i] + HeightmapSize);
+            worldUploadRegionMax[i] = std::min(worldUploadRegionMax[i], worldUploadRegionMin[i] + HeightmapDimension);
         }
         else
         {
-            worldUploadRegionMin[i] = std::max(worldUploadRegionMin[i], worldUploadRegionMax[i] - HeightmapSize);
+            worldUploadRegionMin[i] = std::max(worldUploadRegionMin[i], worldUploadRegionMax[i] - HeightmapDimension);
         }
     }
 
@@ -295,7 +260,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
         }
     };
 
-    if ((worldUploadRegionMax.x - worldUploadRegionMin.x == HeightmapSize) || (worldUploadRegionMax.y - worldUploadRegionMin.y == HeightmapSize))
+    if ((worldUploadRegionMax.x - worldUploadRegionMin.x == HeightmapDimension) || (worldUploadRegionMax.y - worldUploadRegionMin.y == HeightmapDimension))
     {
         // If we need to copy the whole texture, just do it once.
         WriteRegion(mappedData, level, worldUploadRegionMin, worldUploadRegionMin + fullSize);
@@ -314,7 +279,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     if (texUploadRegionMin.x == texUploadRegionMax.x && texUploadRegionMin.y < texUploadRegionMax.y)
     {
         // No vertical slice and no vertical wrap so only flush the rows we touched.
-        D3D12_RANGE writeRange = { (size_t)HeightmapIndex(0, texUploadRegionMin.y), (size_t)HeightmapIndex(HeightmapSize - 1, texUploadRegionMax.y) + 1 };
+        D3D12_RANGE writeRange = { (size_t)HeightmapIndex(0, texUploadRegionMin.y), (size_t)HeightmapIndex(HeightmapDimension - 1, texUploadRegionMax.y) + 1 };
         levelData.intermediateBuffer->Unmap(0, &writeRange);
     }
     else
@@ -333,10 +298,10 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     src.PlacedFootprint.Offset = 0;
     src.PlacedFootprint.Footprint.Format = HeightmapTexFormat;
-    src.PlacedFootprint.Footprint.Width = HeightmapSize;
-    src.PlacedFootprint.Footprint.Height = HeightmapSize;
+    src.PlacedFootprint.Footprint.Width = HeightmapDimension;
+    src.PlacedFootprint.Footprint.Height = HeightmapDimension;
     src.PlacedFootprint.Footprint.Depth = 1;
-    src.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(HeightmapSize, sizeof(float));
+    src.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(HeightmapDimension, sizeof(float));
 
     // Copy from the intermediate buffer to the actual texture.
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
@@ -353,7 +318,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     };
 
     // Copy the whole thing because we moved the whole width or height of the texture.
-    if (worldUploadRegionMin.x + HeightmapSize == worldUploadRegionMax.x || worldUploadRegionMin.y + HeightmapSize == worldUploadRegionMax.y)
+    if (worldUploadRegionMin.x + HeightmapDimension == worldUploadRegionMax.x || worldUploadRegionMin.y + HeightmapDimension == worldUploadRegionMax.y)
     {
         CopyBox(Vec2iZero, fullSize);
         return;
@@ -362,25 +327,25 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     // Copy vertical slice(s).
     if (texUploadRegionMin.x < texUploadRegionMax.x)
     {
-        CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapSize));
+        CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
     }
     else if (texUploadRegionMin.x > texUploadRegionMax.x)
     {
         // Dirty region wraps across the boundary so copy two slices.
-        CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(HeightmapSize, HeightmapSize));
-        CopyBox(Vec2i(0, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapSize));
+        CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(HeightmapDimension, HeightmapDimension));
+        CopyBox(Vec2i(0, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
     }
 
     // Copy horizontal slice(s).
     if (texUploadRegionMin.y <= texUploadRegionMax.y)
     {
-        CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapSize, texUploadRegionMax.y + 1));
+        CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
     }
     else if (texUploadRegionMin.y > texUploadRegionMax.y)
     {
         // Dirty region wraps across the boundary so copy two slices.
-        CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapSize, HeightmapSize));
-        CopyBox(Vec2i(0, 0), Vec2i(HeightmapSize, texUploadRegionMax.y + 1));
+        CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapDimension, HeightmapDimension));
+        CopyBox(Vec2i(0, 0), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
     }
 }
 
@@ -423,18 +388,18 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             Vec2i maxVert = WorldPosToCell(maxPosXZ, tileCoords);
 
             // Clamp to heightmap bounds.
-            minVert.x = std::clamp(minVert.x, -1, CellsPerTileX + 1);
-            minVert.y = std::clamp(minVert.y, -1, CellsPerTileZ + 1);
-            maxVert.x = std::clamp(maxVert.x, -1, CellsPerTileX + 1);
-            maxVert.y = std::clamp(maxVert.y, -1, CellsPerTileZ + 1);
+            minVert.x = std::clamp(minVert.x, -1, VertexGridDimension + 1);
+            minVert.y = std::clamp(minVert.y, -1, VertexGridDimension + 1);
+            maxVert.x = std::clamp(maxVert.x, -1, VertexGridDimension + 1);
+            maxVert.y = std::clamp(maxVert.y, -1, VertexGridDimension + 1);
 
             // Update heightmap.
             for (int z = minVert.y; z <= maxVert.y; ++z)
             {
                 for (int x = minVert.x; x <= maxVert.x; ++x)
                 {
-                    int globalX = x + tileX * CellsPerTileX;
-                    int globalZ = z + tileZ * CellsPerTileZ;
+                    int globalX = x + tileX * VertexGridDimension;
+                    int globalZ = z + tileZ * VertexGridDimension;
                     Vec2f pos = ToVertexPos(globalX, globalZ);
                     float distSq = math::length2(pos - posXZ);
                     tile.heightmap[HeightmapIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
@@ -442,15 +407,15 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             }
 
             // We might not actually have to upload.
-            if (maxVert.x < 0 || CellsPerTileX < minVert.x ||
-                maxVert.y < 0 || CellsPerTileZ < minVert.y)
+            if (maxVert.x < 0 || VertexGridDimension < minVert.x ||
+                maxVert.y < 0 || VertexGridDimension < minVert.y)
                 continue;
 
             // Now clamp to actual tile bounds.
-            minVert.x = std::clamp(minVert.x, 0, CellsPerTileX);
-            minVert.y = std::clamp(minVert.y, 0, CellsPerTileZ);
-            maxVert.x = std::clamp(maxVert.x, 0, CellsPerTileX);
-            maxVert.y = std::clamp(maxVert.y, 0, CellsPerTileZ);
+            minVert.x = std::clamp(minVert.x, 0, VertexGridDimension);
+            minVert.y = std::clamp(minVert.y, 0, VertexGridDimension);
+            maxVert.x = std::clamp(maxVert.x, 0, VertexGridDimension);
+            maxVert.y = std::clamp(maxVert.y, 0, VertexGridDimension);
 
             // Last time we modified this tile, we only updated one of the two buffers.
             // Combine the region we modified that time with the one we're modifying this time.
@@ -727,7 +692,7 @@ void Terrain::CreateConstantBuffers(Renderer& renderer)
 
 void Terrain::BuildIndexBuffer(Renderer& renderer)
 {
-    size_t dataSize = IndicesPerTile * sizeof(uint16);
+    size_t dataSize = IndexBufferLength * sizeof(uint16);
     m_indexBuffer.buffer = renderer.CreateResidentBuffer(dataSize);
     m_indexBuffer.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
     m_indexBuffer.view.BufferLocation = m_indexBuffer.buffer->GetGPUVirtualAddress();
@@ -739,15 +704,15 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
     Assert(indexData);
 
     // Build quad patches.
-    for (int z = 0; z < CellsPerTileZ; ++z)
+    for (int z = 0; z < VertexGridDimension; ++z)
     {
-        for (int x = 0; x < CellsPerTileX; ++x)
+        for (int x = 0; x < VertexGridDimension; ++x)
         {
-            uint16* p = &indexData[4 * (CellsPerTileX * z + x)];
-            p[0] = (CellsPerTileX + 1) * (z + 0) + (x + 0);
-            p[1] = (CellsPerTileX + 1) * (z + 0) + (x + 1);
-            p[2] = (CellsPerTileX + 1) * (z + 1) + (x + 0);
-            p[3] = (CellsPerTileX + 1) * (z + 1) + (x + 1);
+            uint16* p = &indexData[4 * ((VertexGridDimension - 1) * z + x)];
+            p[0] = VertexGridDimension * (z + 0) + (x + 0);
+            p[1] = VertexGridDimension * (z + 0) + (x + 1);
+            p[2] = VertexGridDimension * (z + 1) + (x + 0);
+            p[3] = VertexGridDimension * (z + 1) + (x + 1);
         }
     }
 
@@ -759,7 +724,7 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
 
 void Terrain::BuildVertexBuffer(Renderer& renderer)
 {
-    size_t dataSize = VertsPerTile * sizeof(TerrainVertex);
+    size_t dataSize = VertexBufferLength * sizeof(TerrainVertex);
     m_vertexBuffer.buffer = renderer.CreateResidentBuffer(dataSize);
     m_vertexBuffer.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
     m_vertexBuffer.view.BufferLocation = m_vertexBuffer.buffer->GetGPUVirtualAddress();
@@ -771,9 +736,9 @@ void Terrain::BuildVertexBuffer(Renderer& renderer)
     m_vertexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
     Assert(vertexData);
 
-    for (int z = 0; z <= CellsPerTileZ; ++z)
+    for (int z = 0; z < VertexGridDimension; ++z)
     {
-        for (int x = 0; x <= CellsPerTileX; ++x)
+        for (int x = 0; x < VertexGridDimension; ++x)
         {
             TerrainVertex& v = vertexData[VertexIndex(x, z)];
             v.pos = ToVertexPos(x, z);
@@ -789,8 +754,8 @@ void Terrain::BuildVertexBuffer(Renderer& renderer)
 
 void Terrain::BuildWater(Renderer& renderer)
 {
-    const float HalfGridSizeX = 0.5f * CellSize * (float)(CellsPerTileX);// * NumTilesX);
-    const float HalfGridSizeZ = 0.5f * CellSize * (float)(CellsPerTileZ);// * NumTilesZ);
+    const float HalfGridSizeX = 0.5f * VertexPatchSize * (float)(VertexGridDimension - 1);
+    const float HalfGridSizeZ = 0.5f * VertexPatchSize * (float)(VertexGridDimension - 1);
     const WaterVertex WaterVerts[] = {
         { { -HalfGridSizeX, 0.f, -HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
         { { -HalfGridSizeX, 0.f,  HalfGridSizeZ }, Vec3fY, { 0x20, 0x70, 0xff, 0x80 } },
@@ -820,7 +785,7 @@ float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level)
     Vec2i globalCoords = (levelGlobalCoords << level);
 
     // Offset since tiling is centred at the origin.
-    globalCoords -= (Vec2i(HeightmapSize, HeightmapSize) << level) / 2;
+    globalCoords -= (Vec2i(HeightmapDimension, HeightmapDimension) << level) / 2;
 
     // Offset to get the centre of this bigger texel.
     if (level > 1)
@@ -849,8 +814,8 @@ float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level)
 Vec2f Terrain::ToVertexPos(int globalX, int globalZ)
 {
     return Vec2f(
-        CellSize * ((float)globalX - 0.5f * (float)(CellsPerTileX)),// * NumTilesX)),
-        CellSize * ((float)globalZ - 0.5f * (float)(CellsPerTileZ)));// * NumTilesZ)));
+        VertexPatchSize * ((float)globalX - 0.5f * (float)(VertexGridDimension - 1)),
+        VertexPatchSize * ((float)globalZ - 0.5f * (float)(VertexGridDimension - 1)));
 }
 
 Vec2i Terrain::CalcClipmapTexelOffset(const Vec3f& camPos) const
