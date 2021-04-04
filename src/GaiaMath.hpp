@@ -83,6 +83,11 @@ constexpr inline T AlignPow2(T n, T align)
     return (n + align - 1) & ~(align - 1);
 }
 
+inline int IFloorF(float x)
+{
+    return (int)floorf(x);
+}
+
 // https://stackoverflow.com/a/24748637
 constexpr inline int ILog2(int32 n)
 {
@@ -102,6 +107,11 @@ constexpr inline int ILog2(int32 n)
     return i;
 
 #undef S
+}
+
+inline Vec2i Vec2Floor(Vec2f v)
+{
+    return Vec2i(IFloorF(v.x), IFloorF(v.y));
 }
 
 inline Vec3f Mat4fTransformVec3f(const Mat4f& m, const Vec3f& v)
@@ -138,3 +148,20 @@ inline Mat3f Mat3fMakeRotationZ(float rz)
 } // namespace math
 
 } // namespace gaia
+
+
+// Standard library overloads:
+namespace std
+{
+
+// Hash specialisations:
+template <typename T>
+struct hash<glm::vec<2, T>>
+{
+    size_t operator()(glm::vec<2, T> v) const
+    {
+        return std::hash<T>()(v.x) ^ std::hash<T>()(v.y);
+    }
+};
+
+} // namespace std

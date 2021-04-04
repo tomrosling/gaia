@@ -25,11 +25,12 @@ public:
     void Imgui(Renderer& renderer);
 
 private:
+    static constexpr int NumClipLevels = 8; // Number of clipmap levels (i.e. number of textures).
+
     struct ClipmapLevel
     {
-        //std::vector<float> heightmap;
         ComPtr<ID3D12Resource> texture;
-        ComPtr<ID3D12Resource> intermediateBuffer;
+        ComPtr<ID3D12Resource> intermediateBuffer; // TODO: Optimise this. We don't need a separate intermediate buffer per layer.
     };
 
     struct VertexBuffer
@@ -67,21 +68,29 @@ private:
     void BuildWater(Renderer& renderer);
     void UpdateHeightmapTexture(Renderer& renderer);
     void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
-    float GenerateHeight(Vec2i levelGlobalCoords, int level);
+    float GetHeight(Vec2i levelGlobalCoords, int level) const;
+    float GenerateHeight(Vec2i levelGlobalCoords, int level) const;
     Vec2f ToVertexPos(int globalX, int globalZ);
     Vec2i CalcClipmapTexelOffset(const Vec3f& camPos) const;
 
-    std::vector<ClipmapLevel> m_clipmapLevels;
+    // Heightmap data, lazily populated as tiles are edited (otherwise data is just created from noise on demand).
+    std::unordered_map<Vec2i, std::vector<float>> m_tileCaches[NumClipLevels];
+
+    // Clipmap and vertex data.
+    ClipmapLevel m_clipmapLevels[NumClipLevels];
     VertexBuffer m_vertexBuffer;
     IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
-    int m_seed = 0;
+    Vec2i m_clipmapTexelOffset = Vec2iZero;
+    bool m_clip0dirty = false; // TODO: Store a dirty region instead.
 
+    // Water rendering data (TODO: Move water to it's own class).
     VertexBuffer m_waterVertexBuffer;
     IndexBuffer m_waterIndexBuffer;
-
     ComPtr<ID3D12PipelineState> m_pipelineState;
-    ComPtr<ID3D12PipelineState> m_waterPipelineState; // TODO: Move water to it's own class
+    ComPtr<ID3D12PipelineState> m_waterPipelineState;
+
+    // Constants, textures.
     ComPtr<ID3D12Resource> m_constantBuffers[BackbufferCount];
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
@@ -89,12 +98,11 @@ private:
     int m_baseHeightmapTexIndex = -1;
     int m_heightmapSamplerDescIndex = -1;
     bool m_diffuseTexStateDirty = true;
-    Vec2i m_clipmapTexelOffset = Vec2iZero;
-
     ComPtr<ID3D12Resource> m_diffuseTextures[2];
     ComPtr<ID3D12Resource> m_intermediateDiffuseTexBuffers[2];
 
-    // Tweakables
+    // Tweakables/generation data.
+    int m_seed = 0;
     NoiseOctave m_noiseOctaves[4];
     bool m_randomiseSeed = true;
     bool m_wireframeMode = false;

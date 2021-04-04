@@ -22,15 +22,23 @@ struct WaterVertex
 static constexpr int VertexGridDimension = 256;                                     // Number of vertices in each dimension of the vertex grid.
 static constexpr int VertexBufferLength = math::Square(VertexGridDimension);        // Number of vertices in the vertex buffer.
 static constexpr int IndexBufferLength = 4 * math::Square(VertexGridDimension - 1); // Number of indices in the index buffer.
-static constexpr int NumClipLevels = 8;                                             // Number of clipmap levels (i.e. number of textures).
 static constexpr int HeightmapDimension = 256;                                      // Dimension of each heightmap texture.
 static constexpr float TexelSize = 0.05f;                                           // World size of a texel at clip level 0.
 static constexpr float VertexPatchSize = 0.05f * 64.f;                              // World size of a vertex patch.
 static constexpr DXGI_FORMAT HeightmapTexFormat = DXGI_FORMAT_R32_FLOAT;            // Texture format for the heightmap.
+static constexpr int TileDimension = 64;                                            // Dimension of each tile/chunk in m_tileCaches.
 static_assert(VertexBufferLength <= (1 << 16), "Index format too small");
 static_assert(HeightmapDimension * sizeof(float) == GetTexturePitchBytes(HeightmapDimension, sizeof(float)), "Heightmap size does not meet DX12 alignment requirements");
 
+// Returns index of a heightmap sample within a tile.
+static int TileIndex(int x, int z)
+{
+    Assert(0 <= x && x < TileDimension);
+    Assert(0 <= z && z < TileDimension);
+    return TileDimension * z + x;
+}
 
+// Returns index of a vertex within the vertex buffer.
 static int VertexIndex(int x, int z) 
 {
     Assert(0 <= x && x < VertexGridDimension);
@@ -38,6 +46,7 @@ static int VertexIndex(int x, int z)
     return VertexGridDimension * z + x;
 }
 
+// Returns index of a sample within a heightmap/clipmap texture.
 static int HeightmapIndex(int x, int z)
 {
     Assert(0 <= x && x < HeightmapDimension);
@@ -51,6 +60,45 @@ static Vec2i WrapHeightmapCoords(Vec2i levelGlobalCoords)
     // This is a mod operation that always returns a positive result.
     static_assert(math::IsPow2(HeightmapDimension), "HeightmapDimension must be a power of 2");
     return levelGlobalCoords & (HeightmapDimension - 1);
+}
+
+static Vec2i WrapTileCoords(Vec2i levelGlobalCoords)
+{
+    static_assert(math::IsPow2(TileDimension), "TileDimension must be a power of 2");
+    return levelGlobalCoords & (TileDimension - 1);
+}
+
+static std::pair<Vec2i, Vec2i> LevelGlobalCoordsToTile(Vec2i levelGlobalCoords)
+{
+    Vec2i coordsInTile = WrapTileCoords(levelGlobalCoords);
+    Vec2i tile = (levelGlobalCoords - coordsInTile) / TileDimension;
+    return { tile, coordsInTile };
+}
+
+static std::pair<Vec2i, Vec2i> GlobalCoordsToTile(Vec2i globalCoords, int level)
+{
+    return LevelGlobalCoordsToTile(Vec2i(globalCoords) >> level);
+}
+
+// Returns coordinates relative to the given tile; may be out of bounds for that tile.
+static Vec2i GlobalCoordsToTileCoords(Vec2i globalCoords, Vec2i tile, int level)
+{
+    return (Vec2i(globalCoords) >> level) - (TileDimension * tile);
+}
+
+static Vec2i WorldPosToGlobalCoords(Vec2f worldPos)
+{
+    return math::Vec2Floor(worldPos / TexelSize);
+}
+
+static std::pair<Vec2i, Vec2i> WorldPosToTile(Vec2f worldPos, int level)
+{
+    return GlobalCoordsToTile(WorldPosToGlobalCoords(worldPos), level);
+}
+
+static Vec2f GlobalCoordsToWorldPos(Vec2i globalCoords)
+{
+    return Vec2f(globalCoords) * TexelSize;
 }
 
 
@@ -73,7 +121,6 @@ bool Terrain::Init(Renderer& renderer)
 
     // Create a set of clipmap textures.
     ID3D12Resource* textures[NumClipLevels] = {};
-    m_clipmapLevels.resize(NumClipLevels);
     for (int level = 0; level < NumClipLevels; ++level)
     {
         ClipmapLevel& tile = m_clipmapLevels[level];
@@ -179,15 +226,26 @@ void Terrain::Render(Renderer& renderer)
 void Terrain::UpdateHeightmapTexture(Renderer& renderer)
 {
     Vec2i newTexelOffset = CalcClipmapTexelOffset(renderer.GetCamPos());
-    if (m_clipmapTexelOffset == newTexelOffset)
+
+    if (m_clipmapTexelOffset == newTexelOffset && !m_clip0dirty)
         return;
 
     renderer.WaitCurrentFrame();
     renderer.BeginUploads();
 
-    for (int i = 0; i < NumClipLevels; ++i)
+    if (m_clip0dirty)
     {
-        UpdateHeightmapTextureLevel(renderer, i, m_clipmapTexelOffset, newTexelOffset);
+        UpdateHeightmapTextureLevel(renderer, 0, Vec2i(INT_MAX, INT_MAX), newTexelOffset);
+        m_clip0dirty = false;
+    }
+
+    if (m_clipmapTexelOffset != newTexelOffset)
+    {
+    
+        for (int i = 0; i < NumClipLevels; ++i)
+        {
+            UpdateHeightmapTextureLevel(renderer, i, m_clipmapTexelOffset, newTexelOffset);
+        }
     }
 
     m_uploadFenceVal = renderer.EndUploads();
@@ -255,7 +313,11 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
             {
                 Vec2i levelGlobalCoords(x, z);
                 Vec2i texCoords = WrapHeightmapCoords(levelGlobalCoords);
-                mappedData[HeightmapIndex(texCoords.x, texCoords.y)] = GenerateHeight(levelGlobalCoords, level);
+
+                // Offset input coords since clipmap tiling is centred at the origin.
+                levelGlobalCoords -= Vec2i(HeightmapDimension, HeightmapDimension) / 2;
+
+                mappedData[HeightmapIndex(texCoords.x, texCoords.y)] = GetHeight(levelGlobalCoords, level);
             }
         }
     };
@@ -351,58 +413,59 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
 
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
 {
-#if 0
     // Check buffers not already being uploaded.
     Assert(m_uploadFenceVal == 0);
 
     // Find all tiles touched by this transform.
     // Account for tile borders.
-    Vec2f minPosXZ = posXZ - Vec2f(radius, radius);
-    Vec2f maxPosXZ = posXZ + Vec2f(radius, radius);
-    Vec2i minTile = WorldPosToTile(minPosXZ - Vec2f(CellSize, CellSize));
-    Vec2i maxTile = WorldPosToTile(maxPosXZ + Vec2f(CellSize, CellSize));
-
-    // Skip if outside the world.
-    if (minTile.x >= NumTilesX || minTile.y >= NumTilesZ)
-        return;
-    if (maxTile.x < 0 || maxTile.y < 0)
-        return;
-
-    minTile.x = std::clamp(minTile.x, 0, NumTilesX - 1);
-    minTile.y = std::clamp(minTile.y, 0, NumTilesZ - 1);
-    maxTile.x = std::clamp(maxTile.x, 0, NumTilesX - 1);
-    maxTile.y = std::clamp(maxTile.y, 0, NumTilesZ - 1);
-
-    renderer.BeginUploads();
-    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+    Vec2i minGlobalCoords = WorldPosToGlobalCoords(posXZ - Vec2f(radius, radius));
+    Vec2i maxGlobalCoords = WorldPosToGlobalCoords(posXZ + Vec2f(radius, radius));
+    Vec2i minTile = GlobalCoordsToTile(minGlobalCoords - Vec2i(TexelSize, TexelSize), 0).first;
+    Vec2i maxTile = GlobalCoordsToTile(maxGlobalCoords + Vec2i(TexelSize, TexelSize), 0).first;
 
     for (int tileZ = minTile.y; tileZ <= maxTile.y; ++tileZ)
     {
         for (int tileX = minTile.x; tileX <= maxTile.x; ++tileX)
         {
-            Tile& tile = m_tiles[TileIndex(tileX, tileZ)];
+            auto [it, inserted] = m_tileCaches[0].try_emplace(Vec2i(tileX, tileZ), std::vector<float>());
+            std::vector<float>& heightmap = it->second;
+            if (inserted)
+            {
+                // We have to initialise this tile. Fill in the noise data.
+                Vec2i tileBaseCoords = Vec2i(tileX, tileZ) * TileDimension;
+                heightmap.reserve(math::Square(TileDimension));
+                for (int z = 0; z < TileDimension; ++z)
+                {
+                    for (int x = 0; x < TileDimension; ++x)
+                    {
+                        heightmap.push_back(GenerateHeight(tileBaseCoords + Vec2i(x, z), 0));
+                    }
+                }
+            }
 
             // Find bounds within the tile that could be touched.
-            Vec2i tileCoords(tileX, tileZ);
-            Vec2i minVert = WorldPosToCell(minPosXZ, tileCoords);
-            Vec2i maxVert = WorldPosToCell(maxPosXZ, tileCoords);
+            Vec2i tile(tileX, tileZ);
+            Vec2i minVert = GlobalCoordsToTileCoords(minGlobalCoords, tile, 0);
+            Vec2i maxVert = GlobalCoordsToTileCoords(maxGlobalCoords, tile, 0) + Vec2i(1, 1);
 
             // Clamp to heightmap bounds.
-            minVert.x = std::clamp(minVert.x, -1, VertexGridDimension + 1);
-            minVert.y = std::clamp(minVert.y, -1, VertexGridDimension + 1);
-            maxVert.x = std::clamp(maxVert.x, -1, VertexGridDimension + 1);
-            maxVert.y = std::clamp(maxVert.y, -1, VertexGridDimension + 1);
+            minVert.x = std::clamp(minVert.x, 0, TileDimension);
+            minVert.y = std::clamp(minVert.y, 0, TileDimension);
+            maxVert.x = std::clamp(maxVert.x, 0, TileDimension);
+            maxVert.y = std::clamp(maxVert.y, 0, TileDimension);
 
             // Update heightmap.
-            for (int z = minVert.y; z <= maxVert.y; ++z)
+            for (int z = minVert.y; z < maxVert.y; ++z)
             {
-                for (int x = minVert.x; x <= maxVert.x; ++x)
+                for (int x = minVert.x; x < maxVert.x; ++x)
                 {
-                    int globalX = x + tileX * VertexGridDimension;
-                    int globalZ = z + tileZ * VertexGridDimension;
-                    Vec2f pos = ToVertexPos(globalX, globalZ);
+                    int globalX = x + tileX * TileDimension;
+                    int globalZ = z + tileZ * TileDimension;
+                    Vec2f pos = GlobalCoordsToWorldPos(Vec2i(globalX, globalZ));
                     float distSq = math::length2(pos - posXZ);
-                    tile.heightmap[HeightmapIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
+                    heightmap[TileIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
+                    //if (math::Square(radius) > distSq)
+                    //    heightmap[TileIndex(x, z)] = 5.f;
                 }
             }
 
@@ -417,6 +480,9 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             maxVert.x = std::clamp(maxVert.x, 0, VertexGridDimension);
             maxVert.y = std::clamp(maxVert.y, 0, VertexGridDimension);
 
+            // Flag clipmap as dirty. TODO: Assign a region and only reupload that.
+            m_clip0dirty = true;
+#if 0
             // Last time we modified this tile, we only updated one of the two buffers.
             // Combine the region we modified that time with the one we're modifying this time.
             // This assumes the regions will be close between frames, and performance will be bad if they're not.
@@ -449,11 +515,9 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             tile.currentBuffer ^= 1;
             commandList.CopyBufferRegion(tile.gpuDoubleBuffer[tile.currentBuffer].Get(), writeRange.Begin, 
                 tile.intermediateBuffer.Get(), writeRange.Begin, writeRange.End - writeRange.Begin);
+#endif
         }
     }
-
-    m_uploadFenceVal = renderer.EndUploads();
-#endif
 }
 
 bool Terrain::LoadCompiledShaders(Renderer& renderer)
@@ -508,7 +572,7 @@ void Terrain::Imgui(Renderer& renderer)
 {
     if (ImGui::Begin("Terrain"))
     {
-        if (ImGui::CollapsingHeader("Perlin Octaves", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader("Perlin Octaves"))
         {
             for (int i = 0; i < (int)std::size(m_noiseOctaves); ++i)
             {
@@ -522,6 +586,17 @@ void Terrain::Imgui(Renderer& renderer)
             }
 
             ImGui::Columns(1);
+        }
+
+        if (ImGui::CollapsingHeader("Coordinates"))
+        {
+            Vec2f cursorPos = m_mappedConstantBuffers[0]->highlightPosXZ;
+            Vec2i globalCoords = WorldPosToGlobalCoords(cursorPos);
+            auto [tile, tileCoords] = WorldPosToTile(cursorPos, 0);
+            ImGui::Text("Cursor Pos:    (%.2f, %.2f)", cursorPos.x, cursorPos.y);
+            ImGui::Text("Global Coords: (%02d, %02d)", globalCoords.x, globalCoords.y);
+            ImGui::Text("Tile:          (%02d, %02d)", tile.x, tile.y);
+            ImGui::Text("Tile Coords:   (%02d, %02d)", tileCoords.x, tileCoords.y);
         }
         
         if (ImGui::Button("Regenerate"))
@@ -779,19 +854,33 @@ void Terrain::BuildWater(Renderer& renderer)
     m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);
 }
 
-float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level)
+float Terrain::GetHeight(Vec2i levelGlobalCoords, int level) const
+{
+    // Check if there is a modification at this position.
+    auto [tile, tileCoords] = LevelGlobalCoordsToTile(levelGlobalCoords);
+    auto it = m_tileCaches[level].find(tile);
+    if (it != m_tileCaches[level].end())
+    {
+        return it->second[TileIndex(tileCoords.x, tileCoords.y)];
+    }
+
+    return GenerateHeight(levelGlobalCoords, level);
+}
+
+float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level) const
 {
     // Scale back up to global coords.
     Vec2i globalCoords = (levelGlobalCoords << level);
-
-    // Offset since tiling is centred at the origin.
-    globalCoords -= (Vec2i(HeightmapDimension, HeightmapDimension) << level) / 2;
 
     // Offset to get the centre of this bigger texel.
     if (level > 1)
     {
         globalCoords += (Vec2i(1, 1) << (level - 1));
     }
+
+    // If not, generate a height from the noise.
+
+    // Additional offset to get the centre of the texel.
     Vec2f fGlobalCoords(globalCoords);
     if (level > 0)
     {
@@ -805,7 +894,7 @@ float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level)
     for (int i = 0; i < (int)std::size(m_noiseOctaves); ++i)
     {
         auto [frequency, amplitude] = m_noiseOctaves[i];
-        height += amplitude * stb_perlin_noise3_seed(fGlobalCoords.x * frequency, 0.f, fGlobalCoords.y * frequency, 0, 0, 0, m_seed + i);
+        height += amplitude * stb_perlin_noise3_seed(globalCoords.x * frequency, 0.f, globalCoords.y * frequency, 0, 0, 0, m_seed + i);
     }
 
     return height;
@@ -822,12 +911,7 @@ Vec2i Terrain::CalcClipmapTexelOffset(const Vec3f& camPos) const
 {
     // Find how many (whole) texels at level 0 in world space we are from the origin.
     // TODO: Store the previous transition direction and fudge to prevent unnecessary jitter.
-    auto IFloorDivf = [](float x, float y) 
-    {
-        return (int)floorf(x / y);
-    };
-    return Vec2i(IFloorDivf(camPos.x, TexelSize), IFloorDivf(camPos.z, TexelSize));
-
+    return WorldPosToGlobalCoords(Vec2f(camPos.x, camPos.z));
 }
 
 }

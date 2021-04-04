@@ -1,7 +1,10 @@
-#include <memory>
-#include <algorithm>
 #include <cstdlib>
 #include <climits>
+
+#include <memory>
+#include <algorithm>
+#include <vector>
+#include <unordered_map> // TODO: Write/use a real hashmap!
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
