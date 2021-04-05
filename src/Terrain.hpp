@@ -68,6 +68,8 @@ private:
     void BuildWater(Renderer& renderer);
     void UpdateHeightmapTexture(Renderer& renderer);
     void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
+    void UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset);
+    std::vector<float>& GetOrCreateTile(Vec2i tile, int level);
     float GetHeight(Vec2i levelGlobalCoords, int level) const;
     float GenerateHeight(Vec2i levelGlobalCoords, int level) const;
     Vec2f ToVertexPos(int globalX, int globalZ);
@@ -82,8 +84,9 @@ private:
     IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
     Vec2i m_clipmapTexelOffset = Vec2iZero;
-    bool m_clip0dirty = false; // TODO: Store a dirty region instead.
-
+    Vec2i m_globalDirtyRegionMin = Vec2iZero;
+    Vec2i m_globalDirtyRegionMax = Vec2iZero;
+    
     // Water rendering data (TODO: Move water to it's own class).
     VertexBuffer m_waterVertexBuffer;
     IndexBuffer m_waterIndexBuffer;

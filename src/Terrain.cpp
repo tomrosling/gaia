@@ -38,6 +38,11 @@ static int TileIndex(int x, int z)
     return TileDimension * z + x;
 }
 
+static int TileIndex(Vec2i coords)
+{
+    return TileIndex(coords.x, coords.y);
+}
+
 // Returns index of a vertex within the vertex buffer.
 static int VertexIndex(int x, int z) 
 {
@@ -46,12 +51,22 @@ static int VertexIndex(int x, int z)
     return VertexGridDimension * z + x;
 }
 
+static int VertexIndex(Vec2i coords)
+{
+    return VertexIndex(coords.x, coords.y);
+}
+
 // Returns index of a sample within a heightmap/clipmap texture.
 static int HeightmapIndex(int x, int z)
 {
     Assert(0 <= x && x < HeightmapDimension);
     Assert(0 <= z && z < HeightmapDimension);
     return HeightmapDimension * z + x;
+}
+
+static int HeightmapIndex(Vec2i coords)
+{
+    return HeightmapIndex(coords.x, coords.y);
 }
 
 static Vec2i WrapHeightmapCoords(Vec2i levelGlobalCoords)
@@ -81,9 +96,15 @@ static std::pair<Vec2i, Vec2i> GlobalCoordsToTile(Vec2i globalCoords, int level)
 }
 
 // Returns coordinates relative to the given tile; may be out of bounds for that tile.
+static Vec2i LevelGlobalCoordsToTileCoords(Vec2i levelGlobalCoords, Vec2i tile)
+{
+    return levelGlobalCoords - (TileDimension * tile);
+}
+
+// Returns coordinates relative to the given tile; may be out of bounds for that tile.
 static Vec2i GlobalCoordsToTileCoords(Vec2i globalCoords, Vec2i tile, int level)
 {
-    return (Vec2i(globalCoords) >> level) - (TileDimension * tile);
+    return LevelGlobalCoordsToTileCoords(Vec2i(globalCoords) >> level, tile);
 }
 
 static Vec2i WorldPosToGlobalCoords(Vec2f worldPos)
@@ -99,6 +120,43 @@ static std::pair<Vec2i, Vec2i> WorldPosToTile(Vec2f worldPos, int level)
 static Vec2f GlobalCoordsToWorldPos(Vec2i globalCoords)
 {
     return Vec2f(globalCoords) * TexelSize;
+}
+
+static D3D12_TEXTURE_COPY_LOCATION MakeSrcTexCopyLocation(ID3D12Resource* intermediateBuffer)
+{
+    D3D12_TEXTURE_COPY_LOCATION src = {};
+    src.pResource = intermediateBuffer;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src.PlacedFootprint.Offset = 0;
+    src.PlacedFootprint.Footprint.Format = HeightmapTexFormat;
+    src.PlacedFootprint.Footprint.Width = HeightmapDimension;
+    src.PlacedFootprint.Footprint.Height = HeightmapDimension;
+    src.PlacedFootprint.Footprint.Depth = 1;
+    src.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(HeightmapDimension, sizeof(float));
+    return src;
+}
+
+static D3D12_TEXTURE_COPY_LOCATION MakeDstTexCopyLocation(ID3D12Resource* texture)
+{
+
+    D3D12_TEXTURE_COPY_LOCATION dst = {};
+    dst.pResource = texture;
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.SubresourceIndex = 0;
+    return dst;
+}
+
+
+static void CopyTex2DRegion(ID3D12GraphicsCommandList& commandList, D3D12_TEXTURE_COPY_LOCATION& dst, const D3D12_TEXTURE_COPY_LOCATION& src, Vec2i minInclusive, Vec2i maxExclusive)
+{
+    D3D12_BOX box;
+    box.left = minInclusive.x;
+    box.top = minInclusive.y;
+    box.front = 0;
+    box.right = maxExclusive.x;
+    box.bottom = maxExclusive.y;
+    box.back = 1;
+    commandList.CopyTextureRegion(&dst, box.left, box.top, 0, &src, &box);
 }
 
 
@@ -227,16 +285,20 @@ void Terrain::UpdateHeightmapTexture(Renderer& renderer)
 {
     Vec2i newTexelOffset = CalcClipmapTexelOffset(renderer.GetCamPos());
 
-    if (m_clipmapTexelOffset == newTexelOffset && !m_clip0dirty)
+    if (m_clipmapTexelOffset == newTexelOffset && m_globalDirtyRegionMin.x >= m_globalDirtyRegionMax.x && m_globalDirtyRegionMin.y >= m_globalDirtyRegionMax.y)
         return;
 
     renderer.WaitCurrentFrame();
     renderer.BeginUploads();
 
-    if (m_clip0dirty)
+    if (m_globalDirtyRegionMin.x < m_globalDirtyRegionMax.x && m_globalDirtyRegionMin.y < m_globalDirtyRegionMax.y)
     {
-        UpdateHeightmapTextureLevel(renderer, 0, Vec2i(INT_MAX, INT_MAX), newTexelOffset);
-        m_clip0dirty = false;
+        for (int i = 0; i < NumClipLevels; ++i)
+        {
+            UploadHeightmapTextureRegion(renderer, i, m_globalDirtyRegionMin, m_globalDirtyRegionMax, newTexelOffset);
+        }
+        m_globalDirtyRegionMin = Vec2iZero;
+        m_globalDirtyRegionMax = Vec2iZero;
     }
 
     if (m_clipmapTexelOffset != newTexelOffset)
@@ -317,7 +379,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
                 // Offset input coords since clipmap tiling is centred at the origin.
                 levelGlobalCoords -= Vec2i(HeightmapDimension, HeightmapDimension) / 2;
 
-                mappedData[HeightmapIndex(texCoords.x, texCoords.y)] = GetHeight(levelGlobalCoords, level);
+                mappedData[HeightmapIndex(texCoords)] = GetHeight(levelGlobalCoords, level);
             }
         }
     };
@@ -334,7 +396,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
         WriteRegion(mappedData, level, Vec2i(wantRegionMin.x, worldUploadRegionMin.y), Vec2i(wantRegionMax.x, worldUploadRegionMax.y));
     }
 
-    // Calculate the region of the texture we will write to (possibly wrapping across the edge).
+    // Calculate the region of the texture we wrote to (possibly wrapping across the edge).
     Vec2i texUploadRegionMin(WrapHeightmapCoords(worldUploadRegionMin));
     Vec2i texUploadRegionMax(WrapHeightmapCoords(worldUploadRegionMax));
 
@@ -350,34 +412,11 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
         levelData.intermediateBuffer->Unmap(0, nullptr);
     }
 
-    D3D12_TEXTURE_COPY_LOCATION dst = {};
-    dst.pResource = levelData.texture.Get(),
-    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    dst.SubresourceIndex = 0;
-
-    D3D12_TEXTURE_COPY_LOCATION src = {};
-    src.pResource = levelData.intermediateBuffer.Get();
-    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    src.PlacedFootprint.Offset = 0;
-    src.PlacedFootprint.Footprint.Format = HeightmapTexFormat;
-    src.PlacedFootprint.Footprint.Width = HeightmapDimension;
-    src.PlacedFootprint.Footprint.Height = HeightmapDimension;
-    src.PlacedFootprint.Footprint.Depth = 1;
-    src.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(HeightmapDimension, sizeof(float));
-
     // Copy from the intermediate buffer to the actual texture.
+    D3D12_TEXTURE_COPY_LOCATION dst = MakeDstTexCopyLocation(levelData.texture.Get());
+    D3D12_TEXTURE_COPY_LOCATION src = MakeSrcTexCopyLocation(levelData.intermediateBuffer.Get());
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    auto CopyBox = [&](Vec2i minExclusive, Vec2i maxInclusive)
-    {
-        D3D12_BOX box;
-        box.left = minExclusive.x;
-        box.top = minExclusive.y;
-        box.front = 0;
-        box.right = maxInclusive.x;
-        box.bottom = maxInclusive.y;
-        box.back = 1;
-        commandList.CopyTextureRegion(&dst, box.left, box.top, 0, &src, &box);
-    };
+    auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive) { CopyTex2DRegion(commandList, dst, src, minInclusive, maxExclusive); };
 
     // Copy the whole thing because we moved the whole width or height of the texture.
     if (worldUploadRegionMin.x + HeightmapDimension == worldUploadRegionMax.x || worldUploadRegionMin.y + HeightmapDimension == worldUploadRegionMax.y)
@@ -387,7 +426,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     }
 
     // Copy vertical slice(s).
-    if (texUploadRegionMin.x < texUploadRegionMax.x)
+    if (texUploadRegionMin.x <= texUploadRegionMax.x)
     {
         CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
     }
@@ -411,6 +450,131 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     }
 }
 
+void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset)
+{
+    Vec2i levelGlobalMin = globalMin >> level;
+    Vec2i levelGlobalMax = ((globalMax - Vec2i(1, 1)) >> level) + Vec2i(1, 1); // Maintain an exclusive region [min, max).
+
+    // Offset to account for clipmap tiling origin.
+    // This is getting ridiculous, can I remove this?
+    const Vec2i fullSize(HeightmapDimension, HeightmapDimension);
+    const Vec2i halfSize = fullSize / 2;
+    levelGlobalMin += halfSize;
+    levelGlobalMax += halfSize;
+
+    // Clamp to the active region.
+    Vec2i textureRegionMin = (newTexelOffset >> level);
+    Vec2i textureRegionMax = (newTexelOffset >> level) + fullSize;
+    levelGlobalMin = std::clamp(levelGlobalMin, textureRegionMin, textureRegionMax);
+    levelGlobalMax = std::clamp(levelGlobalMax, textureRegionMin, textureRegionMax);
+
+    if (levelGlobalMin.x == levelGlobalMax.x || levelGlobalMin.y == levelGlobalMax.y)
+        return;
+
+    // Map the intermediate buffer.
+    ClipmapLevel& levelData = m_clipmapLevels[level];
+    float* mappedData = nullptr;
+    D3D12_RANGE readRange = {};
+    levelData.intermediateBuffer->Map(0, nullptr, (void**)&mappedData);
+    Assert(mappedData);
+
+    // Copy tile data to the intermediate buffer.
+    for (int z = levelGlobalMin.y; z < levelGlobalMax.y; ++z)
+    {
+        for (int x = levelGlobalMin.x; x < levelGlobalMax.x; ++x)
+        {
+            Vec2i levelGlobalCoords = Vec2i(x, z);
+            Vec2i texCoords = WrapHeightmapCoords(levelGlobalCoords);
+
+            // Offset input coords since clipmap tiling is centred at the origin.
+            levelGlobalCoords -= Vec2i(HeightmapDimension, HeightmapDimension) / 2;
+
+            mappedData[HeightmapIndex(texCoords)] = GetHeight(levelGlobalCoords, level);
+        }
+    }
+
+    // Calculate the region of the texture we will write to (possibly wrapping across the edge).
+    Vec2i texUploadRegionMin(WrapHeightmapCoords(levelGlobalMin));
+    Vec2i texUploadRegionMax(WrapHeightmapCoords(levelGlobalMax));
+
+    // TODO: doesn't min.x == max.x mean we need to copy the whole texture?
+    if (texUploadRegionMin.x == texUploadRegionMax.x && texUploadRegionMin.y < texUploadRegionMax.y)
+    {
+        // No vertical slice and no vertical wrap so only flush the rows we touched.
+        D3D12_RANGE writeRange = { (size_t)HeightmapIndex(0, texUploadRegionMin.y), (size_t)HeightmapIndex(HeightmapDimension - 1, texUploadRegionMax.y) + 1 };
+        levelData.intermediateBuffer->Unmap(0, &writeRange);
+    }
+    else
+    {
+        // Flush whole range because we had to touch either every row or at least the top and bottom row.
+        levelData.intermediateBuffer->Unmap(0, nullptr);
+    }
+
+    // Copy from the intermediate buffer to the actual texture.
+    D3D12_TEXTURE_COPY_LOCATION dst = MakeDstTexCopyLocation(levelData.texture.Get());
+    D3D12_TEXTURE_COPY_LOCATION src = MakeSrcTexCopyLocation(levelData.intermediateBuffer.Get());
+    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+    auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive) { CopyTex2DRegion(commandList, dst, src, minInclusive, maxExclusive); };
+
+    if (texUploadRegionMin.x == texUploadRegionMax.x || texUploadRegionMin.y == texUploadRegionMax.y)
+    {
+        CopyBox(Vec2iZero, fullSize);
+    }
+    else
+    {
+        if (texUploadRegionMin.x < texUploadRegionMax.x)
+        {
+            if (texUploadRegionMin.y < texUploadRegionMax.y)
+            {
+                CopyBox(texUploadRegionMin, texUploadRegionMax);
+            }
+            else
+            {
+                // Dirty region wraps across the boundary so copy two regions.
+                CopyBox(Vec2i(texUploadRegionMin.x, 0), texUploadRegionMax);
+                CopyBox(texUploadRegionMin, Vec2i(texUploadRegionMax.x, HeightmapDimension));
+            }
+        }
+        else
+        {
+            if (texUploadRegionMin.y < texUploadRegionMax.y)
+            {
+                // Dirty region wraps across the boundary so copy two regions.
+                CopyBox(Vec2i(0, texUploadRegionMin.y), texUploadRegionMax);
+                CopyBox(texUploadRegionMin, Vec2i(HeightmapDimension, texUploadRegionMax.y));
+            }
+            else
+            {
+                // Dirty region wraps across *both* boundaries so copy four regions!
+                CopyBox(texUploadRegionMin, fullSize);
+                CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(HeightmapDimension, texUploadRegionMax.y));
+                CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(texUploadRegionMax.x, HeightmapDimension));
+                CopyBox(Vec2iZero, texUploadRegionMax);
+            }
+        }
+    }
+}
+
+std::vector<float>& Terrain::GetOrCreateTile(Vec2i tile, int level)
+{
+    auto [it, inserted] = m_tileCaches[level].try_emplace(tile, std::vector<float>());
+    std::vector<float>& heightmap = it->second;
+    if (inserted)
+    {
+        // We have to initialise this tile. Fill in the noise data.
+        Vec2i tileBaseCoords = tile * TileDimension;
+        heightmap.reserve(math::Square(TileDimension));
+        for (int z = 0; z < TileDimension; ++z)
+        {
+            for (int x = 0; x < TileDimension; ++x)
+            {
+                heightmap.push_back(GenerateHeight(tileBaseCoords + Vec2i(x, z), level));
+            }
+        }
+    }
+    return heightmap;
+}
+
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
 {
     // Check buffers not already being uploaded.
@@ -427,24 +591,10 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     {
         for (int tileX = minTile.x; tileX <= maxTile.x; ++tileX)
         {
-            auto [it, inserted] = m_tileCaches[0].try_emplace(Vec2i(tileX, tileZ), std::vector<float>());
-            std::vector<float>& heightmap = it->second;
-            if (inserted)
-            {
-                // We have to initialise this tile. Fill in the noise data.
-                Vec2i tileBaseCoords = Vec2i(tileX, tileZ) * TileDimension;
-                heightmap.reserve(math::Square(TileDimension));
-                for (int z = 0; z < TileDimension; ++z)
-                {
-                    for (int x = 0; x < TileDimension; ++x)
-                    {
-                        heightmap.push_back(GenerateHeight(tileBaseCoords + Vec2i(x, z), 0));
-                    }
-                }
-            }
+            Vec2i tile(tileX, tileZ);
+            std::vector<float>& heightmap = GetOrCreateTile(tile, 0);
 
             // Find bounds within the tile that could be touched.
-            Vec2i tile(tileX, tileZ);
             Vec2i minVert = GlobalCoordsToTileCoords(minGlobalCoords, tile, 0);
             Vec2i maxVert = GlobalCoordsToTileCoords(maxGlobalCoords, tile, 0) + Vec2i(1, 1);
 
@@ -468,56 +618,38 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
                     //    heightmap[TileIndex(x, z)] = 5.f;
                 }
             }
-
-            // We might not actually have to upload.
-            if (maxVert.x < 0 || VertexGridDimension < minVert.x ||
-                maxVert.y < 0 || VertexGridDimension < minVert.y)
-                continue;
-
-            // Now clamp to actual tile bounds.
-            minVert.x = std::clamp(minVert.x, 0, VertexGridDimension);
-            minVert.y = std::clamp(minVert.y, 0, VertexGridDimension);
-            maxVert.x = std::clamp(maxVert.x, 0, VertexGridDimension);
-            maxVert.y = std::clamp(maxVert.y, 0, VertexGridDimension);
-
-            // Flag clipmap as dirty. TODO: Assign a region and only reupload that.
-            m_clip0dirty = true;
-#if 0
-            // Last time we modified this tile, we only updated one of the two buffers.
-            // Combine the region we modified that time with the one we're modifying this time.
-            // This assumes the regions will be close between frames, and performance will be bad if they're not.
-            Vec2i dirtyUnionMin(std::min(minVert.x, tile.dirtyMin.x), std::min(minVert.y, tile.dirtyMin.y));
-            Vec2i dirtyUnionMax(std::max(maxVert.x, tile.dirtyMax.x), std::max(maxVert.y, tile.dirtyMax.y));
-            tile.dirtyMin = minVert;
-            tile.dirtyMax = maxVert;
-
-            // Map the intermediate buffer.
-            TerrainVertex* vertexData = nullptr;
-            D3D12_RANGE readRange = {};
-            tile.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
-            Assert(vertexData);
-
-            // Write to mapped buffer, updating normals and colours as we go.
-            for (int z = dirtyUnionMin.y; z <= dirtyUnionMax.y; ++z)
-            {
-                for (int x = dirtyUnionMin.x; x <= dirtyUnionMax.x; ++x)
-                {
-                    UpdateVertex(vertexData, tile.heightmap, Vec2i(x, z), Vec2i(tileX, tileZ));
-                }
-            }
-
-            D3D12_RANGE writeRange = {
-                VertexIndex(dirtyUnionMin.x, dirtyUnionMin.y) * sizeof(TerrainVertex),
-                (VertexIndex(dirtyUnionMax.x, dirtyUnionMax.y) + 1) * sizeof(TerrainVertex)
-            };
-            tile.intermediateBuffer->Unmap(0, &writeRange);
-
-            tile.currentBuffer ^= 1;
-            commandList.CopyBufferRegion(tile.gpuDoubleBuffer[tile.currentBuffer].Get(), writeRange.Begin, 
-                tile.intermediateBuffer.Get(), writeRange.Begin, writeRange.End - writeRange.Begin);
-#endif
         }
     }
+
+    // Update lower tile mips.
+    for (int level = 1; level < NumClipLevels; ++level)
+    {
+        Vec2i levelGlobalMin = minGlobalCoords >> level;
+        Vec2i levelGlobalMax = ((maxGlobalCoords - Vec2i(1, 1)) >> level) + Vec2i(1, 1);
+        
+        // Could also loop over tiles here to avoid repeated GetOrCreateTile() calls...
+        // But the hashmap lookup should be practically free most of the time, so doesn't seem worth the code bloat.
+        for (int z = levelGlobalMin.y; z < levelGlobalMax.y; ++z)
+        {
+            for (int x = levelGlobalMin.x; x < levelGlobalMax.x; ++x)
+            {
+                Vec2i levelGlobalCoords(x, z);
+                auto [dstTile, dstTileCoords] = LevelGlobalCoordsToTile(levelGlobalCoords);
+                auto [srcTile, srcTileCoords] = LevelGlobalCoordsToTile(levelGlobalCoords << 1);
+                const std::vector<float>& srcHeightmap = GetOrCreateTile(srcTile, level - 1);
+                std::vector<float>& dstHeightmap = GetOrCreateTile(dstTile, level);
+                dstHeightmap[TileIndex(dstTileCoords)] = 0.25f * (srcHeightmap[TileIndex(srcTileCoords)] +
+                                                                  srcHeightmap[TileIndex(srcTileCoords + Vec2i(1, 0))] +
+                                                                  srcHeightmap[TileIndex(srcTileCoords + Vec2i(0, 1))] +
+                                                                  srcHeightmap[TileIndex(srcTileCoords + Vec2i(1, 1))]);
+            }
+        }
+    }
+
+    // Flag clipmap as dirty.
+    Assert(m_globalDirtyRegionMin == Vec2iZero && m_globalDirtyRegionMax == Vec2iZero);
+    m_globalDirtyRegionMin = minGlobalCoords;
+    m_globalDirtyRegionMax = maxGlobalCoords;
 }
 
 bool Terrain::LoadCompiledShaders(Renderer& renderer)

@@ -155,13 +155,20 @@ namespace std
 {
 
 // Hash specialisations:
-template <typename T>
+template<typename T>
 struct hash<glm::vec<2, T>>
 {
     size_t operator()(glm::vec<2, T> v) const
     {
-        return std::hash<T>()(v.x) ^ std::hash<T>()(v.y);
+        return hash<T>()(v.x) ^ hash<T>()(v.y);
     }
 };
+
+// Clamp overloads:
+template<typename T>
+glm::vec<2, T> clamp(glm::vec<2, T> v, glm::vec<2, T> min, glm::vec<2, T> max)
+{
+    return glm::vec<2, T>(clamp(v.x, min.x, max.x), clamp(v.y, min.y, max.y));
+}
 
 } // namespace std
