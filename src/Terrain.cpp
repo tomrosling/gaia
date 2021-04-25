@@ -146,7 +146,6 @@ static D3D12_TEXTURE_COPY_LOCATION MakeDstTexCopyLocation(ID3D12Resource* textur
     return dst;
 }
 
-
 static void CopyTex2DRegion(ID3D12GraphicsCommandList& commandList, D3D12_TEXTURE_COPY_LOCATION& dst, const D3D12_TEXTURE_COPY_LOCATION& src, Vec2i minInclusive, Vec2i maxExclusive)
 {
     D3D12_BOX box;
@@ -316,7 +315,7 @@ void Terrain::UpdateHeightmapTexture(Renderer& renderer)
  
 void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset)
 {
-    // Update the clipmap at the given level.
+    // Update the clipmap at the given level based on camera movement.
     // Texturing is done toroidally, so when the camera moves we replace the furthest slice
     // of the texture in the direction we are moving away from with the new slice we need.
     // In most cases this will be a single horizontal or vertical slice, but in general
@@ -359,47 +358,27 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     // Map the intermediate buffer.
     ClipmapLevel& levelData = m_clipmapLevels[level];
     float* mappedData = nullptr;
-    D3D12_RANGE readRange = {};
     levelData.intermediateBuffer->Map(0, nullptr, (void**)&mappedData);
     Assert(mappedData);
 
     // Write the two (wrapped) quads we need to update to the mapped buffer.
-    // TODO: We don't really need to address this buffer as if it were the actual texture; 
-    // we could just write to the start of it every time or use a ring buffer.
-    // Is a buffer even appropriate or should it be a texture (and use WriteToSubresource instead)?
-    auto WriteRegion = [this](float* mappedData, int level, Vec2i min, Vec2i max)
-    {
-        for (int z = min.y; z < max.y; ++z)
-        {
-            for (int x = min.x; x < max.x; ++x)
-            {
-                Vec2i levelGlobalCoords(x, z);
-                Vec2i texCoords = WrapHeightmapCoords(levelGlobalCoords);
-
-                // Offset input coords since clipmap tiling is centred at the origin.
-                levelGlobalCoords -= Vec2i(HeightmapDimension, HeightmapDimension) / 2;
-
-                mappedData[HeightmapIndex(texCoords)] = GetHeight(levelGlobalCoords, level);
-            }
-        }
-    };
-
     if ((worldUploadRegionMax.x - worldUploadRegionMin.x == HeightmapDimension) || (worldUploadRegionMax.y - worldUploadRegionMin.y == HeightmapDimension))
     {
         // If we need to copy the whole texture, just do it once.
-        WriteRegion(mappedData, level, worldUploadRegionMin, worldUploadRegionMin + fullSize);
+        WriteIntermediateHeightmapData(mappedData, level, worldUploadRegionMin, worldUploadRegionMin + fullSize);
     }
     else
     {
         // Else copy the two (wrapping) slices.
-        WriteRegion(mappedData, level, Vec2i(worldUploadRegionMin.x, wantRegionMin.y), Vec2i(worldUploadRegionMax.x, wantRegionMax.y));
-        WriteRegion(mappedData, level, Vec2i(wantRegionMin.x, worldUploadRegionMin.y), Vec2i(wantRegionMax.x, worldUploadRegionMax.y));
+        WriteIntermediateHeightmapData(mappedData, level, Vec2i(worldUploadRegionMin.x, wantRegionMin.y), Vec2i(worldUploadRegionMax.x, wantRegionMax.y));
+        WriteIntermediateHeightmapData(mappedData, level, Vec2i(wantRegionMin.x, worldUploadRegionMin.y), Vec2i(wantRegionMax.x, worldUploadRegionMax.y));
     }
 
     // Calculate the region of the texture we wrote to (possibly wrapping across the edge).
     Vec2i texUploadRegionMin(WrapHeightmapCoords(worldUploadRegionMin));
     Vec2i texUploadRegionMax(WrapHeightmapCoords(worldUploadRegionMax));
 
+    // Unmap intermediate buffer.
     if (texUploadRegionMin.x == texUploadRegionMax.x && texUploadRegionMin.y < texUploadRegionMax.y)
     {
         // No vertical slice and no vertical wrap so only flush the rows we touched.
@@ -418,15 +397,15 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
     auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive) { CopyTex2DRegion(commandList, dst, src, minInclusive, maxExclusive); };
 
-    // Copy the whole thing because we moved the whole width or height of the texture.
     if (worldUploadRegionMin.x + HeightmapDimension == worldUploadRegionMax.x || worldUploadRegionMin.y + HeightmapDimension == worldUploadRegionMax.y)
     {
+        // Copy the whole thing because we moved the whole width or height of the texture.
         CopyBox(Vec2iZero, fullSize);
         return;
     }
 
     // Copy vertical slice(s).
-    if (texUploadRegionMin.x <= texUploadRegionMax.x)
+    if (texUploadRegionMin.x < texUploadRegionMax.x)
     {
         CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
     }
@@ -438,7 +417,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     }
 
     // Copy horizontal slice(s).
-    if (texUploadRegionMin.y <= texUploadRegionMax.y)
+    if (texUploadRegionMin.y < texUploadRegionMax.y)
     {
         CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
     }
@@ -452,55 +431,50 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
 
 void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset)
 {
+    // Upload a dirty AABB region (inclusive bounds) of a single clipmap level, after terrain has been modified.
+    // Note that the logic in this function is different to UpdateHeightmapTextureLevel();
+    // here we are dealing with a single AABB, whereas that function must upload a cross that spans the whole clipmap texture.
+
+    Assert(globalMin.x <= globalMax.x);
+    Assert(globalMin.y <= globalMax.y);
     Vec2i levelGlobalMin = globalMin >> level;
-    Vec2i levelGlobalMax = ((globalMax - Vec2i(1, 1)) >> level) + Vec2i(1, 1); // Maintain an exclusive region [min, max).
+    Vec2i levelGlobalMax = globalMax >> level;
+
+    // Transform to a [min, max) region now that we're done shifting for levels.
+    levelGlobalMax += Vec2i(1, 1);
 
     // Offset to account for clipmap tiling origin.
-    // This is getting ridiculous, can I remove this?
+    // TODO: this is getting ridiculous, can I remove this?
     const Vec2i fullSize(HeightmapDimension, HeightmapDimension);
     const Vec2i halfSize = fullSize / 2;
     levelGlobalMin += halfSize;
     levelGlobalMax += halfSize;
 
-    // Clamp to the active region.
+    // Does the dirty region actually overlap with the active texture region at this clip level?
     Vec2i textureRegionMin = (newTexelOffset >> level);
     Vec2i textureRegionMax = (newTexelOffset >> level) + fullSize;
     levelGlobalMin = std::clamp(levelGlobalMin, textureRegionMin, textureRegionMax);
     levelGlobalMax = std::clamp(levelGlobalMax, textureRegionMin, textureRegionMax);
-
     if (levelGlobalMin.x == levelGlobalMax.x || levelGlobalMin.y == levelGlobalMax.y)
         return;
 
     // Map the intermediate buffer.
     ClipmapLevel& levelData = m_clipmapLevels[level];
     float* mappedData = nullptr;
-    D3D12_RANGE readRange = {};
     levelData.intermediateBuffer->Map(0, nullptr, (void**)&mappedData);
     Assert(mappedData);
 
     // Copy tile data to the intermediate buffer.
-    for (int z = levelGlobalMin.y; z < levelGlobalMax.y; ++z)
-    {
-        for (int x = levelGlobalMin.x; x < levelGlobalMax.x; ++x)
-        {
-            Vec2i levelGlobalCoords = Vec2i(x, z);
-            Vec2i texCoords = WrapHeightmapCoords(levelGlobalCoords);
-
-            // Offset input coords since clipmap tiling is centred at the origin.
-            levelGlobalCoords -= Vec2i(HeightmapDimension, HeightmapDimension) / 2;
-
-            mappedData[HeightmapIndex(texCoords)] = GetHeight(levelGlobalCoords, level);
-        }
-    }
+    WriteIntermediateHeightmapData(mappedData, level, levelGlobalMin, levelGlobalMax);
 
     // Calculate the region of the texture we will write to (possibly wrapping across the edge).
     Vec2i texUploadRegionMin(WrapHeightmapCoords(levelGlobalMin));
     Vec2i texUploadRegionMax(WrapHeightmapCoords(levelGlobalMax));
 
-    // TODO: doesn't min.x == max.x mean we need to copy the whole texture?
-    if (texUploadRegionMin.x == texUploadRegionMax.x && texUploadRegionMin.y < texUploadRegionMax.y)
+    // Unmap intermediate buffer.
+    if (texUploadRegionMin.y < texUploadRegionMax.y)
     {
-        // No vertical slice and no vertical wrap so only flush the rows we touched.
+        // No vertical wrap so only flush the rows we touched.
         D3D12_RANGE writeRange = { (size_t)HeightmapIndex(0, texUploadRegionMin.y), (size_t)HeightmapIndex(HeightmapDimension - 1, texUploadRegionMax.y) + 1 };
         levelData.intermediateBuffer->Unmap(0, &writeRange);
     }
@@ -516,41 +490,35 @@ void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i 
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
     auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive) { CopyTex2DRegion(commandList, dst, src, minInclusive, maxExclusive); };
 
-    if (texUploadRegionMin.x == texUploadRegionMax.x || texUploadRegionMin.y == texUploadRegionMax.y)
+    if (texUploadRegionMin.x < texUploadRegionMax.x)
     {
-        CopyBox(Vec2iZero, fullSize);
-    }
-    else
-    {
-        if (texUploadRegionMin.x < texUploadRegionMax.x)
+        if (texUploadRegionMin.y < texUploadRegionMax.y)
         {
-            if (texUploadRegionMin.y < texUploadRegionMax.y)
-            {
-                CopyBox(texUploadRegionMin, texUploadRegionMax);
-            }
-            else
-            {
-                // Dirty region wraps across the boundary so copy two regions.
-                CopyBox(Vec2i(texUploadRegionMin.x, 0), texUploadRegionMax);
-                CopyBox(texUploadRegionMin, Vec2i(texUploadRegionMax.x, HeightmapDimension));
-            }
+            // The region doesn't wrap either boundary so just do a single copy.
+            CopyBox(texUploadRegionMin, texUploadRegionMax + Vec2i(1, 1));
         }
         else
         {
-            if (texUploadRegionMin.y < texUploadRegionMax.y)
-            {
-                // Dirty region wraps across the boundary so copy two regions.
-                CopyBox(Vec2i(0, texUploadRegionMin.y), texUploadRegionMax);
-                CopyBox(texUploadRegionMin, Vec2i(HeightmapDimension, texUploadRegionMax.y));
-            }
-            else
-            {
-                // Dirty region wraps across *both* boundaries so copy four regions!
-                CopyBox(texUploadRegionMin, fullSize);
-                CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(HeightmapDimension, texUploadRegionMax.y));
-                CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(texUploadRegionMax.x, HeightmapDimension));
-                CopyBox(Vec2iZero, texUploadRegionMax);
-            }
+            // Dirty region wraps across the boundary so copy two regions.
+            CopyBox(Vec2i(texUploadRegionMin.x, 0), texUploadRegionMax);
+            CopyBox(texUploadRegionMin, Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
+        }
+    }
+    else
+    {
+        if (texUploadRegionMin.y < texUploadRegionMax.y)
+        {
+            // Dirty region wraps across the boundary so copy two regions.
+            CopyBox(Vec2i(0, texUploadRegionMin.y), texUploadRegionMax + Vec2i(1, 1));
+            CopyBox(texUploadRegionMin, Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
+        }
+        else
+        {
+            // Dirty region wraps across *both* boundaries so copy four regions!
+            CopyBox(texUploadRegionMin, fullSize);
+            CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
+            CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
+            CopyBox(Vec2iZero, texUploadRegionMax + Vec2i(1, 1));
         }
     }
 }
@@ -598,7 +566,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
             Vec2i minVert = GlobalCoordsToTileCoords(minGlobalCoords, tile, 0);
             Vec2i maxVert = GlobalCoordsToTileCoords(maxGlobalCoords, tile, 0) + Vec2i(1, 1);
 
-            // Clamp to heightmap bounds.
+            // Clamp to tile bounds.
             minVert.x = std::clamp(minVert.x, 0, TileDimension);
             minVert.y = std::clamp(minVert.y, 0, TileDimension);
             maxVert.x = std::clamp(maxVert.x, 0, TileDimension);
@@ -614,8 +582,6 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
                     Vec2f pos = GlobalCoordsToWorldPos(Vec2i(globalX, globalZ));
                     float distSq = math::length2(pos - posXZ);
                     heightmap[TileIndex(x, z)] += raiseBy * std::max(math::Square(radius) - distSq, 0.f);
-                    //if (math::Square(radius) > distSq)
-                    //    heightmap[TileIndex(x, z)] = 5.f;
                 }
             }
         }
@@ -625,7 +591,7 @@ void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, fl
     for (int level = 1; level < NumClipLevels; ++level)
     {
         Vec2i levelGlobalMin = minGlobalCoords >> level;
-        Vec2i levelGlobalMax = ((maxGlobalCoords - Vec2i(1, 1)) >> level) + Vec2i(1, 1);
+        Vec2i levelGlobalMax = (maxGlobalCoords >> level) + Vec2i(1, 1);
         
         // Could also loop over tiles here to avoid repeated GetOrCreateTile() calls...
         // But the hashmap lookup should be practically free most of the time, so doesn't seem worth the code bloat.
@@ -1044,6 +1010,26 @@ Vec2i Terrain::CalcClipmapTexelOffset(const Vec3f& camPos) const
     // Find how many (whole) texels at level 0 in world space we are from the origin.
     // TODO: Store the previous transition direction and fudge to prevent unnecessary jitter.
     return WorldPosToGlobalCoords(Vec2f(camPos.x, camPos.z));
+}
+
+void Terrain::WriteIntermediateHeightmapData(float* mappedData, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax)
+{
+    // TODO: We don't really need to address this buffer as if it were the actual texture;
+    // we could just write to the start of it every time or use a ring buffer.
+    // Is a buffer even appropriate or should it be a texture (and use WriteToSubresource instead)?
+    for (int z = levelGlobalMin.y; z < levelGlobalMax.y; ++z)
+    {
+        for (int x = levelGlobalMin.x; x < levelGlobalMax.x; ++x)
+        {
+            Vec2i levelGlobalCoords = Vec2i(x, z);
+            Vec2i texCoords = WrapHeightmapCoords(levelGlobalCoords);
+
+            // Offset input coords back since clipmap tiling is centred at the origin.
+            levelGlobalCoords -= Vec2i(HeightmapDimension, HeightmapDimension) / 2;
+
+            mappedData[HeightmapIndex(texCoords)] = GetHeight(levelGlobalCoords, level);
+        }
+    }
 }
 
 }

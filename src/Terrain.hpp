@@ -74,6 +74,7 @@ private:
     float GenerateHeight(Vec2i levelGlobalCoords, int level) const;
     Vec2f ToVertexPos(int globalX, int globalZ);
     Vec2i CalcClipmapTexelOffset(const Vec3f& camPos) const;
+    void WriteIntermediateHeightmapData(float* mappedData, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
 
     // Heightmap data, lazily populated as tiles are edited (otherwise data is just created from noise on demand).
     std::unordered_map<Vec2i, std::vector<float>> m_tileCaches[NumClipLevels];
@@ -85,7 +86,7 @@ private:
     uint64 m_uploadFenceVal = 0;
     Vec2i m_clipmapTexelOffset = Vec2iZero;
     Vec2i m_globalDirtyRegionMin = Vec2iZero;
-    Vec2i m_globalDirtyRegionMax = Vec2iZero;
+    Vec2i m_globalDirtyRegionMax = Vec2iZero; // Inclusive bounds.
     
     // Water rendering data (TODO: Move water to it's own class).
     VertexBuffer m_waterVertexBuffer;
