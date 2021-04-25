@@ -1,3 +1,4 @@
+#pragma once
 #define GLM_FORCE_EXPLICIT_CTOR
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -56,34 +57,39 @@ using namespace glm;
 
 // Define some of our own:
 template<typename T>
-inline T Square(T x)
+constexpr inline T Square(T x)
 {
     return x * x;
 }
 
 template<typename T>
-inline T Lerp(T a, T b, float t)
+constexpr inline T Lerp(T a, T b, float t)
 {
     Assert(0.f <= t && t <= 1.f);
     return a + (T)(t * (b - a));
 }
 
 template<typename T>
-inline bool IsPow2(T n)
+constexpr inline bool IsPow2(T n)
 {
     Assert(n != 0);
     return (n & (n - 1)) == 0;
 }
 
 template<typename T>
-inline T AlignPow2(T n, T align)
+constexpr inline T AlignPow2(T n, T align)
 {
     Assert(IsPow2(align));
-    return (n + align) & ~(align - 1);
+    return (n + align - 1) & ~(align - 1);
+}
+
+inline int IFloorF(float x)
+{
+    return (int)floorf(x);
 }
 
 // https://stackoverflow.com/a/24748637
-inline int ILog2(int32 n)
+constexpr inline int ILog2(int32 n)
 {
 #define S(k)           \
     if (n >= (1 << k)) \
@@ -101,6 +107,11 @@ inline int ILog2(int32 n)
     return i;
 
 #undef S
+}
+
+inline Vec2i Vec2Floor(Vec2f v)
+{
+    return Vec2i(IFloorF(v.x), IFloorF(v.y));
 }
 
 inline Vec3f Mat4fTransformVec3f(const Mat4f& m, const Vec3f& v)
@@ -137,3 +148,27 @@ inline Mat3f Mat3fMakeRotationZ(float rz)
 } // namespace math
 
 } // namespace gaia
+
+
+// Standard library overloads:
+namespace std
+{
+
+// Hash specialisations:
+template<typename T>
+struct hash<glm::vec<2, T>>
+{
+    size_t operator()(glm::vec<2, T> v) const
+    {
+        return hash<T>()(v.x) ^ hash<T>()(v.y);
+    }
+};
+
+// Clamp overloads:
+template<typename T>
+glm::vec<2, T> clamp(glm::vec<2, T> v, glm::vec<2, T> min, glm::vec<2, T> max)
+{
+    return glm::vec<2, T>(clamp(v.x, min.x, max.x), clamp(v.y, min.y, max.y));
+}
+
+} // namespace std

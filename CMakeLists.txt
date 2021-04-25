@@ -12,14 +12,23 @@ file(GLOB headers "src/*.hpp")
 file(GLOB shaders "data/shaders/*.hlsl")
 set_source_files_properties("data/shaders/SkyboxVertex.hlsl" "data/shaders/TerrainVertex.hlsl" "data/shaders/WaterVertex.hlsl" "data/shaders/DebugVertex.hlsl" PROPERTIES VS_SHADER_TYPE "Vertex")
 set_source_files_properties("data/shaders/SkyboxPixel.hlsl" "data/shaders/TerrainPixel.hlsl" "data/shaders/WaterPixel.hlsl" "data/Shaders/DebugPixel.hlsl" PROPERTIES VS_SHADER_TYPE "Pixel")
+set_source_files_properties("data/shaders/TerrainHull.hlsl" PROPERTIES VS_SHADER_TYPE "Hull")
+set_source_files_properties("data/shaders/TerrainDomain.hlsl" PROPERTIES VS_SHADER_TYPE "Domain")
 set_source_files_properties("data/shaders/GenerateMips.hlsl" PROPERTIES VS_SHADER_TYPE "Compute")
-set_source_files_properties(${shaders} PROPERTIES VS_SHADER_MODEL "5.1")
-source_group("Shaders" FILES ${shaders})
+set_source_files_properties(${shaders} PROPERTIES
+    VS_SHADER_MODEL "5.1"
+    VS_SHADER_ENABLE_DEBUG true
+    #VS_SHADER_DISABLE_OPTIMIZATIONS true
+    VS_SHADER_FLAGS "/WX"
+)
 
 # Add DirectXTex helpers.
-set(sources ${sources} "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.cpp"
+# TODO: Tidy this up.
+set(sources ${sources} "dependencies/DirectXTex/DirectXTex/DirectXTexUtil.cpp"
+                       "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.cpp"
                        "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.cpp")
-set(headers ${headers} "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.h"
+set(headers ${headers} "dependencies/DirectXTex/DirectXTex/DirectXTex.h"
+                       "dependencies/DirectXTex/DDSTextureLoader/DDSTextureLoader12.h"
                        "dependencies/DirectXTex/WICTextureLoader/WICTextureLoader12.h")
 
 # Imgui.
@@ -29,6 +38,9 @@ set(sources ${sources} "dependencies/imgui/imgui.cpp"
                        "dependencies/imgui/examples/imgui_impl_dx12.cpp"
                        "dependencies/imgui/examples/imgui_impl_win32.cpp")
 set(headers ${headers} "dependencies/imgui/imgui.h")
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${sources} ${headers})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/data" FILES ${shaders})
 
 add_executable(gaia WIN32 ${sources} ${headers} ${shaders})
 target_link_libraries(gaia 
@@ -42,8 +54,7 @@ target_include_directories(gaia PRIVATE src
     "dependencies/glm" 
     "dependencies/imgui"
     "dependencies/stb" 
-    "dependencies/DirectXTex/WICTextureLoader"
-    "dependencies/DirectXTex/DDSTextureLoader"
+    "dependencies/DirectXTex"
 )
 target_precompile_headers(gaia PRIVATE src/pch.hpp)
 
@@ -62,18 +73,11 @@ foreach(config ${CMAKE_CONFIGURATION_TYPES})
       "${CMAKE_CURRENT_SOURCE_DIR}/data/textures/skymap.dds" "${outputDir}/skymap.dds")
 
     # Create symlinks for shader source to allow hotloading.
-    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/TerrainPixel.hlsl" "${outputDir}/TerrainPixel.hlsl")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/TerrainVertex.hlsl" "${outputDir}/TerrainVertex.hlsl")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/SkyboxPixel.hlsl" "${outputDir}/SkyboxPixel.hlsl")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/SkyboxVertex.hlsl" "${outputDir}/SkyboxVertex.hlsl")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/WaterPixel.hlsl" "${outputDir}/WaterPixel.hlsl")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/WaterVertex.hlsl" "${outputDir}/WaterVertex.hlsl")
+    foreach(filepath ${shaders})
+        get_filename_component(baseName ${filepath} NAME)
+        execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+          "${filepath}" "${outputDir}/${baseName}")
+    endforeach()
 endforeach()
 
 if(MSVC)

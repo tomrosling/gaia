@@ -19,21 +19,25 @@ public:
     bool LoadCompiledShaders(Renderer& renderer);
     bool HotloadShaders(Renderer& renderer);
 
-    void SetHighlightPos(Vec2f posXZ, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->hightlightPosXZ = posXZ; }
+    void SetHighlightPos(Vec2f posXZ, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->highlightPosXZ = posXZ; }
     void SetHighlightRadius(float radius, int currentBuffer) { m_mappedConstantBuffers[currentBuffer]->highlightRadiusSq = math::Square(radius); }
 
     void Imgui(Renderer& renderer);
 
 private:
-    struct Tile
+    static constexpr int NumClipLevels = 8; // Number of clipmap levels (i.e. number of textures).
+
+    struct ClipmapLevel
     {
-        ComPtr<ID3D12Resource> gpuDoubleBuffer[2];
-        D3D12_VERTEX_BUFFER_VIEW views[2] = {};
+        ComPtr<ID3D12Resource> texture;
+        ComPtr<ID3D12Resource> intermediateBuffer; // TODO: Optimise this. We don't need a separate intermediate buffer per layer.
+    };
+
+    struct VertexBuffer
+    {
+        ComPtr<ID3D12Resource> buffer;
         ComPtr<ID3D12Resource> intermediateBuffer;
-        std::vector<float> heightmap;
-        Vec2i dirtyMin = Vec2iZero;
-        Vec2i dirtyMax = Vec2iZero;
-        int currentBuffer = 0;
+        D3D12_VERTEX_BUFFER_VIEW view = {};
     };
 
     struct IndexBuffer
@@ -45,7 +49,8 @@ private:
 
     struct TerrainPSConstantBuffer
     {
-        Vec2f hightlightPosXZ;
+        Vec2f highlightPosXZ;
+        Vec2f clipmapUVOffset;
         float highlightRadiusSq;
     };
 
@@ -55,41 +60,57 @@ private:
         float amplitude;
     };
 
-    bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
+    bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* hullShader, ID3DBlob* domainShader, ID3DBlob* pixelShader);
     bool CreateWaterPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
-    void BuildTile(Renderer& renderer, int tileX, int tileZ);
+    void BuildVertexBuffer(Renderer& renderer);
     void BuildWater(Renderer& renderer);
-    void UpdateVertex(TerrainVertex* mappedVertexData, const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
-    float GenerateHeight(int globalX, int globalZ);
-    Vec3f ToVertexPos(int globalX, float height, int globalZ);
-    Vec3f GenerateNormal(const std::vector<float>& heightmap, Vec2i vertexCoords, Vec2i tileCoords);
+    void UpdateHeightmapTexture(Renderer& renderer);
+    void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
+    void UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset);
+    std::vector<float>& GetOrCreateTile(Vec2i tile, int level);
+    float GetHeight(Vec2i levelGlobalCoords, int level) const;
+    float GenerateHeight(Vec2i levelGlobalCoords, int level) const;
+    Vec2f ToVertexPos(int globalX, int globalZ);
+    Vec2i CalcClipmapTexelOffset(const Vec3f& camPos) const;
+    void WriteIntermediateHeightmapData(float* mappedData, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
 
-    std::vector<Tile> m_tiles;
-    IndexBuffer m_indexBuffer; // Indices are the same for each tile.
+    // Heightmap data, lazily populated as tiles are edited (otherwise data is just created from noise on demand).
+    std::unordered_map<Vec2i, std::vector<float>> m_tileCaches[NumClipLevels];
+
+    // Clipmap and vertex data.
+    ClipmapLevel m_clipmapLevels[NumClipLevels];
+    VertexBuffer m_vertexBuffer;
+    IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
-    int m_seed = 0;
-
-    ComPtr<ID3D12Resource> m_waterVertexBuffer;
-    ComPtr<ID3D12Resource> m_waterIntermediateVertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_waterVertexBufferView;
+    Vec2i m_clipmapTexelOffset = Vec2iZero;
+    Vec2i m_globalDirtyRegionMin = Vec2iZero;
+    Vec2i m_globalDirtyRegionMax = Vec2iZero; // Inclusive bounds.
+    
+    // Water rendering data (TODO: Move water to it's own class).
+    VertexBuffer m_waterVertexBuffer;
     IndexBuffer m_waterIndexBuffer;
-
     ComPtr<ID3D12PipelineState> m_pipelineState;
-    ComPtr<ID3D12PipelineState> m_waterPipelineState; // TODO: Move water to it's own class
+    ComPtr<ID3D12PipelineState> m_waterPipelineState;
+
+    // Constants, textures.
     ComPtr<ID3D12Resource> m_constantBuffers[BackbufferCount];
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
-    int m_texDescIndices[2] = { -1, -1 };
-    bool m_texStateDirty = true;
+    int m_diffuseTexDescIndices[2] = { -1, -1 };
+    int m_baseHeightmapTexIndex = -1;
+    int m_heightmapSamplerDescIndex = -1;
+    bool m_diffuseTexStateDirty = true;
+    ComPtr<ID3D12Resource> m_diffuseTextures[2];
+    ComPtr<ID3D12Resource> m_intermediateDiffuseTexBuffers[2];
 
-    ComPtr<ID3D12Resource> m_textures[2];
-    ComPtr<ID3D12Resource> m_intermediateTexBuffers[2];
-
-    // Tweakables
+    // Tweakables/generation data.
+    int m_seed = 0;
     NoiseOctave m_noiseOctaves[4];
     bool m_randomiseSeed = true;
+    bool m_wireframeMode = false;
+    bool m_freezeClipmap = false;
 };
 
 }

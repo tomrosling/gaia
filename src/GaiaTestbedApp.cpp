@@ -262,7 +262,7 @@ void GaiaTestbedApp::Update(float dt)
 
             if (m_input.IsMouseButtonDown(MouseButton::Left))
             {
-                float offset = m_input.IsSpecialKeyDown(SpecialKey::Ctrl) ? -0.002f : 0.002f;
+                float offset = m_input.IsSpecialKeyDown(SpecialKey::Ctrl) ? -0.005f : 0.005f;
                 m_terrain.RaiseAreaRounded(m_renderer, Vec2f(pickPointWorldSpace.x, pickPointWorldSpace.z), modifyRadius, offset);
             }
 

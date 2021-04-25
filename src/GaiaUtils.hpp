@@ -13,4 +13,9 @@ inline const wchar_t* GetFileExtension(const wchar_t* filepath)
     return nullptr;
 }
 
+constexpr inline int GetTexturePitchBytes(int width, int bytesPerTexel)
+{
+    return math::AlignPow2(width * bytesPerTexel, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+}
+
 }

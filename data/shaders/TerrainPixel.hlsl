@@ -1,11 +1,12 @@
-cbuffer PSSharedConstants : register(b0)
+cbuffer PSSharedConstants : register(b1)
 {
     float3 CamPos;
 };
 
-cbuffer TerrainPSConstantBuffer : register(b1)
+cbuffer TerrainPSConstantBuffer : register(b2)
 {
     float2 HighlightPosXZ;
+    float2 ClipmapUVOffset;
     float HighlightRadiusSq;
 };
 
@@ -14,13 +15,13 @@ Texture2D DiffuseTex1 : register(t1);
 SamplerState StaticSampler : register(s0);
 
 
-struct PixelShaderInput
+struct DomainShaderOutput
 {
     float3 worldPos : POSITION;
     float3 nrm : NORMAL;
 };
 
-float4 main(PixelShaderInput IN) : SV_Target
+float4 main(DomainShaderOutput IN) : SV_Target
 {
     const float3 LightDir = normalize(float3(0.5, -0.7, 0.3));
 
@@ -29,7 +30,10 @@ float4 main(PixelShaderInput IN) : SV_Target
     float2 uv = IN.worldPos.xz * 0.15;
     float3 grass = DiffuseTex0.Sample(StaticSampler, uv).rgb;
     float3 rocks = DiffuseTex1.Sample(StaticSampler, uv).rgb;
-    float3 diffuse = lerp(grass, rocks, saturate(IN.worldPos.y - 0.3));
+    float t = 1.0;
+    t += 0.5 * IN.worldPos.y;
+    t -= 1.5 * IN.nrm.y;
+    float3 diffuse = lerp(grass, rocks, saturate(t));
     diffuse *= ndotl;
 
     // Specular: this is probably awful.
