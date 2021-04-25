@@ -365,7 +365,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     if ((worldUploadRegionMax.x - worldUploadRegionMin.x == HeightmapDimension) || (worldUploadRegionMax.y - worldUploadRegionMin.y == HeightmapDimension))
     {
         // If we need to copy the whole texture, just do it once.
-        WriteIntermediateHeightmapData(mappedData, level, worldUploadRegionMin, worldUploadRegionMin + fullSize);
+        WriteIntermediateHeightmapData(mappedData, level, wantRegionMin, wantRegionMax);
     }
     else
     {

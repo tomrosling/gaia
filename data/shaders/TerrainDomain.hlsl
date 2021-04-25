@@ -43,7 +43,6 @@ float SampleHeightmapLevel(float2 uv, int clipLevel)
 
     // Translate to actual texture coordinates.
     uv += float2(0.5, 0.5);
-    uv += float2(HalfTexel, HalfTexel);
 
     Texture2D heightmap = HeightmapTex[clipLevel];
     return heightmap.SampleLevel(HeightmapSampler, uv, 0).r;
