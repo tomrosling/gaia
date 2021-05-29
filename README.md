@@ -2,7 +2,7 @@
 
 Procedural terrain generation and rendering, using DirectX 12.
 
-Build using CMake; requires Visual Studio 2017 or later.
+Build using CMake (which will require permission to make symlinks in the build directory); requires Visual Studio 2017 or later.
 
 Toy/learning project (at a very early stage).
 
