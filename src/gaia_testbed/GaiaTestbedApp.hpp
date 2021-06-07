@@ -1,11 +1,11 @@
 #pragma once
-#include "Camera.hpp"
-#include "DebugDraw.hpp"
-#include "Input.hpp"
-#include "Renderer.hpp"
-#include "Skybox.hpp"
-#include "Terrain.hpp"
-#include "Timer.hpp"
+#include <Camera.hpp>
+#include <DebugDraw.hpp>
+#include <Input.hpp>
+#include <Renderer.hpp>
+#include <Skybox.hpp>
+#include <Terrain.hpp>
+#include <Timer.hpp>
 
 class GaiaTestbedApp
 {
