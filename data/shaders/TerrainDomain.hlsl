@@ -2,6 +2,7 @@ cbuffer VSSharedConstants : register(b0)
 {
     matrix viewMat;
     matrix projMat;
+    matrix mvpMat;
 };
 
 cbuffer TerrainPSConstantBuffer : register(b2)

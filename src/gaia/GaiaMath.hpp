@@ -127,6 +127,11 @@ inline Mat4f Mat4fCompose(const Mat3f& m3, const Vec3f& translation)
                  Vec4f(translation, 1.f));
 }
 
+inline Mat4f Mat4fMakeTranslation(const Vec3f& translation)
+{
+    return Mat4fCompose(Mat3fIdentity, translation);
+}
+
 inline Mat3f Mat3fMakeRotationX(float rx)
 {
     // TODO: inline and optimise.

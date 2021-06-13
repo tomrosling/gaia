@@ -27,6 +27,7 @@ struct VSSharedConstants
 {
     Mat4f viewMat;
     Mat4f projMat;
+    Mat4f mvpMat;
 };
 
 struct PSSharedConstants
@@ -394,8 +395,7 @@ void Renderer::BeginFrame()
     m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
     // Set global uniforms
-    VSSharedConstants vertexConstants = { m_viewMat, m_projMat };
-    m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::VSSharedConstants, sizeof(VSSharedConstants) / 4, &vertexConstants, 0);
+    UploadModelMatrix(Mat4fIdentity);
 
     PSSharedConstants pixelConstants = { Vec3f(math::affineInverse(m_viewMat)[3]) };
     m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::PSSharedConstants, sizeof(PSSharedConstants) / 4, &pixelConstants, 0);
@@ -458,6 +458,12 @@ void Renderer::EndFrame()
 void Renderer::WaitCurrentFrame()
 {
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
+}
+
+void Renderer::UploadModelMatrix(const Mat4f& modelMat)
+{
+    VSSharedConstants vertexConstants = { m_viewMat, m_projMat, m_projMat * (m_viewMat * modelMat) };
+    m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::VSSharedConstants, sizeof(VSSharedConstants) / 4, &vertexConstants, 0);
 }
 
 ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage stage)

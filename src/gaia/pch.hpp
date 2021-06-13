@@ -25,3 +25,4 @@
 #include "GaiaDefs.hpp"
 #include "GaiaMath.hpp"
 #include "GaiaUtils.hpp"
+#include "Span.hpp"

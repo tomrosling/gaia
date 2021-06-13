@@ -8,6 +8,7 @@ class Input;
 class Camera
 {
 public:
+    void SetTransform(const Vec3f& pos, Vec2f rot) { m_pos = pos; m_rot = rot; }
     Mat4f Update(const Input& input, float dt);
     Mat4f GetMatrix() const;
 

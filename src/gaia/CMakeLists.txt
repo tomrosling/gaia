@@ -8,15 +8,25 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 
-set(shaders_dir "../../data/shaders")
 file(GLOB sources "./*.cpp")
 file(GLOB headers "./*.hpp")
-file(GLOB shaders "${shaders_dir}/*.hlsl")
-set_source_files_properties("${shaders_dir}/SkyboxVertex.hlsl" "${shaders_dir}/TerrainVertex.hlsl" "${shaders_dir}/WaterVertex.hlsl" "${shaders_dir}/DebugVertex.hlsl" PROPERTIES VS_SHADER_TYPE "Vertex")
-set_source_files_properties("${shaders_dir}/SkyboxPixel.hlsl" "${shaders_dir}/TerrainPixel.hlsl" "${shaders_dir}/WaterPixel.hlsl" "${shaders_dir}/DebugPixel.hlsl" PROPERTIES VS_SHADER_TYPE "Pixel")
-set_source_files_properties("${shaders_dir}/TerrainHull.hlsl" PROPERTIES VS_SHADER_TYPE "Hull")
-set_source_files_properties("${shaders_dir}/TerrainDomain.hlsl" PROPERTIES VS_SHADER_TYPE "Domain")
-set_source_files_properties("${shaders_dir}/GenerateMips.hlsl" PROPERTIES VS_SHADER_TYPE "Compute")
+
+##
+## Shaders
+##
+set(shaders_dir "../../data/shaders")
+file(GLOB vertex_shaders "${shaders_dir}/*Vertex.hlsl")
+file(GLOB pixel_shaders  "${shaders_dir}/*Pixel.hlsl")
+file(GLOB hull_shaders   "${shaders_dir}/*Hull.hlsl")
+file(GLOB domain_shaders "${shaders_dir}/*Domain.hlsl")
+set(compute_shaders      "${shaders_dir}/GenerateMips.hlsl")
+set(shaders ${vertex_shaders} ${pixel_shaders} ${hull_shaders} ${domain_shaders} ${compute_shaders})
+
+set_source_files_properties(${vertex_shaders}  PROPERTIES VS_SHADER_TYPE "Vertex")
+set_source_files_properties(${pixel_shaders}   PROPERTIES VS_SHADER_TYPE "Pixel")
+set_source_files_properties(${hull_shaders}    PROPERTIES VS_SHADER_TYPE "Hull")
+set_source_files_properties(${domain_shaders}  PROPERTIES VS_SHADER_TYPE "Domain")
+set_source_files_properties(${compute_shaders} PROPERTIES VS_SHADER_TYPE "Compute")
 set_source_files_properties(${shaders} PROPERTIES
     VS_SHADER_MODEL "5.1"
     VS_SHADER_ENABLE_DEBUG true
