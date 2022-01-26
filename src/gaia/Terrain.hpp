@@ -25,12 +25,15 @@ public:
     void Imgui(Renderer& renderer);
 
 private:
+    using HeightmapData = std::vector<float>;
     static constexpr int NumClipLevels = 8; // Number of clipmap levels (i.e. number of textures).
 
     struct ClipmapLevel
     {
-        ComPtr<ID3D12Resource> texture;
+        ComPtr<ID3D12Resource> heightMap;
+        ComPtr<ID3D12Resource> normalMap;
         ComPtr<ID3D12Resource> intermediateBuffer; // TODO: Optimise this. We don't need a separate intermediate buffer per layer.
+        ComPtr<ID3D12Resource> normalIntermediate; //       Nor a separate one per map!
     };
 
     struct VertexBuffer
@@ -69,15 +72,15 @@ private:
     void UpdateHeightmapTexture(Renderer& renderer);
     void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
     void UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset);
-    std::vector<float>& GetOrCreateTile(Vec2i tile, int level);
+    HeightmapData& GetOrCreateTile(Vec2i tile, int level);
     float GetHeight(Vec2i levelGlobalCoords, int level) const;
     float GenerateHeight(Vec2i levelGlobalCoords, int level) const;
     Vec2f ToVertexPos(int globalX, int globalZ);
     Vec2i CalcClipmapTexelOffset(const Vec3f& camPos) const;
-    void WriteIntermediateHeightmapData(float* mappedData, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
+    void WriteIntermediateTextureData(float* mappedHeights, Vec4i8* mappedNormals, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
 
     // Heightmap data, lazily populated as tiles are edited (otherwise data is just created from noise on demand).
-    std::unordered_map<Vec2i, std::vector<float>> m_tileCaches[NumClipLevels];
+    std::unordered_map<Vec2i, HeightmapData> m_tileCaches[NumClipLevels];
 
     // Clipmap and vertex data.
     ClipmapLevel m_clipmapLevels[NumClipLevels];
@@ -99,7 +102,8 @@ private:
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
     int m_diffuseTexDescIndices[2] = { -1, -1 };
-    int m_baseHeightmapTexIndex = -1;
+    int m_baseHeightMapTexIndex = -1;
+    int m_baseNormalMapTexIndex = -1;
     int m_heightmapSamplerDescIndex = -1;
     bool m_diffuseTexStateDirty = true;
     ComPtr<ID3D12Resource> m_diffuseTextures[2];

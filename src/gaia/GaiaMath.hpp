@@ -19,6 +19,10 @@ using Vec2i = glm::i32vec2;
 using Vec3i = glm::i32vec3;
 using Vec4i = glm::i32vec4;
 
+using Vec2i8 = glm::i8vec2;
+using Vec3i8 = glm::i8vec3;
+using Vec4i8 = glm::i8vec4;
+
 using Vec2u8 = glm::u8vec2;
 using Vec3u8 = glm::u8vec3;
 using Vec4u8 = glm::u8vec4;
@@ -48,6 +52,14 @@ static constexpr Quatf QuatfIdentity = glm::identity<Quatf>();
 static constexpr Vec2i Vec2iZero(0, 0);
 static constexpr Vec3i Vec3iZero(0, 0, 0);
 static constexpr Vec4i Vec4iZero(0, 0, 0, 0);
+
+static constexpr Vec2i8 Vec2i8Zero(0, 0);
+static constexpr Vec3i8 Vec3i8Zero(0, 0, 0);
+static constexpr Vec4i8 Vec4i8Zero(0, 0, 0, 0);
+
+static constexpr Vec2u8 Vec2u8Zero(0, 0);
+static constexpr Vec3u8 Vec3u8Zero(0, 0, 0);
+static constexpr Vec4u8 Vec4u8Zero(0, 0, 0, 0);
 
 namespace math
 {

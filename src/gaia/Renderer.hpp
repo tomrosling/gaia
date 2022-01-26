@@ -34,6 +34,7 @@ enum E
     PSSharedConstants,
     PSConstantBuffer,
     VertexTexture0,
+    VertexTexture1,
     Texture0, // TODO: Could combine these into a single descriptor table, if we
     Texture1, //       can ensure that the descriptors used will be contiguous.
     Sampler0,

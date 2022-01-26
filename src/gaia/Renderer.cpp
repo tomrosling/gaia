@@ -281,7 +281,8 @@ bool Renderer::CreateRootSignature()
 
     // Create descriptor tables
     D3D12_DESCRIPTOR_RANGE1 cbvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2);
-    D3D12_DESCRIPTOR_RANGE1 vertexTextureSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 0);
+    D3D12_DESCRIPTOR_RANGE1 vertexTexture0SrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 0);
+    D3D12_DESCRIPTOR_RANGE1 vertexTexture1SrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 8);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange0 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange1 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
     D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 1);
@@ -290,7 +291,8 @@ bool Renderer::CreateRootSignature()
     rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_ALL); // TODO: tidy up or rename! We're running out of root signature space. They should probably be in a cbuffer instead.
     rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 1, 0, D3D12_SHADER_VISIBILITY_ALL); //
     rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_ALL); // TODO: Rename!
-    rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &vertexTextureSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
+    rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &vertexTexture0SrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
+    rootParams[RootParam::VertexTexture1].InitAsDescriptorTable(1, &vertexTexture1SrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
     rootParams[RootParam::Texture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Sampler0].InitAsDescriptorTable(1, &samplerSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
