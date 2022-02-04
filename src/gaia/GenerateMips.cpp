@@ -27,7 +27,8 @@ bool GenerateMips::Init(Renderer& renderer)
     if (!CreateRootSignature(renderer))
         return false;
 
-    if (!CreatePipelineState(renderer))
+    m_pipelineState = renderer.CreateComputePipelineState(L"GenerateMips.cso", *m_rootSignature.Get());
+    if (!m_pipelineState)
         return false;
 
     return true;
@@ -123,41 +124,11 @@ bool GenerateMips::CreateRootSignature(Renderer& renderer)
     ComPtr<ID3DBlob> errBlob;
     if (FAILED(::D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &rootSigBlob, &errBlob)))
     {
-        DebugOut("Failed to create root signature: %s\n", errBlob->GetBufferPointer());
+        DebugOut("Failed to create GenerateMips root signature: %s\n", errBlob->GetBufferPointer());
         return false;
     }
 
     if (FAILED(device.CreateRootSignature(0, rootSigBlob->GetBufferPointer(), rootSigBlob->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature))))
-        return false;
-
-    return true;
-}
-
-bool GenerateMips::CreatePipelineState(Renderer& renderer)
-{
-    ID3D12Device2& device = renderer.GetDevice();
-
-    // Load shader.
-    ComPtr<ID3DBlob> shader = renderer.LoadCompiledShader(L"GenerateMips.cso");
-    if (!shader)
-        return false;
-
-    // Create PSO.
-    struct PipelineStateStream
-    {
-        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE rootSignature;
-        CD3DX12_PIPELINE_STATE_STREAM_CS computeShader;
-    };
-
-    PipelineStateStream stream;
-    stream.rootSignature = m_rootSignature.Get();
-    stream.computeShader = CD3DX12_SHADER_BYTECODE(shader.Get());
-
-    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = {
-        sizeof(PipelineStateStream), &stream
-    };
-
-    if (FAILED(device.CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&m_pipelineState))))
         return false;
 
     return true;

@@ -19,7 +19,7 @@ file(GLOB vertex_shaders "${shaders_dir}/*Vertex.hlsl")
 file(GLOB pixel_shaders  "${shaders_dir}/*Pixel.hlsl")
 file(GLOB hull_shaders   "${shaders_dir}/*Hull.hlsl")
 file(GLOB domain_shaders "${shaders_dir}/*Domain.hlsl")
-set(compute_shaders      "${shaders_dir}/GenerateMips.hlsl")
+set(compute_shaders      "${shaders_dir}/GenerateMips.hlsl" "${shaders_dir}/TerrainComputeNormals.hlsl")
 set(shaders ${vertex_shaders} ${pixel_shaders} ${hull_shaders} ${domain_shaders} ${compute_shaders})
 
 set_source_files_properties(${vertex_shaders}  PROPERTIES VS_SHADER_TYPE "Vertex")

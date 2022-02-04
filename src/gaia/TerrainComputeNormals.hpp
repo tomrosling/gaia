@@ -1,14 +1,15 @@
 #pragma once
 
-namespace gaia {
+namespace gaia
+{
 
 class Renderer;
 
-class GenerateMips
+class TerrainComputeNormals
 {
 public:
     bool Init(Renderer& renderer);
-    void Compute(Renderer& renderer, ID3D12Resource* texture);
+    void Compute(Renderer& renderer, ID3D12Resource* srcHeightMap, ID3D12Resource* dstNormalMap, Vec2i uvMin, Vec2i uvMax, int level);
 
 private:
     bool CreateRootSignature(Renderer& renderer);
@@ -17,4 +18,4 @@ private:
     ComPtr<ID3D12PipelineState> m_pipelineState;
 };
 
-}
+} // namespace gaia

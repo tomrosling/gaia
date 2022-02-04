@@ -4,6 +4,7 @@ namespace gaia
 {
 
 class Renderer;
+class TerrainComputeNormals;
 struct TerrainVertex;
 struct WaterVertex;
 
@@ -11,6 +12,8 @@ class Terrain
 {
 public:
     Terrain();
+    ~Terrain();
+
     bool Init(Renderer& renderer);
     void Build(Renderer& renderer);
     void Render(Renderer& renderer);
@@ -33,7 +36,6 @@ private:
         ComPtr<ID3D12Resource> heightMap;
         ComPtr<ID3D12Resource> normalMap;
         ComPtr<ID3D12Resource> intermediateBuffer; // TODO: Optimise this. We don't need a separate intermediate buffer per layer.
-        ComPtr<ID3D12Resource> normalIntermediate; //       Nor a separate one per map!
     };
 
     struct VertexBuffer
@@ -77,7 +79,11 @@ private:
     float GenerateHeight(Vec2i levelGlobalCoords, int level) const;
     Vec2f ToVertexPos(int globalX, int globalZ);
     Vec2i CalcClipmapTexelOffset(const Vec3f& camPos) const;
-    void WriteIntermediateTextureData(float* mappedHeights, Vec4i8* mappedNormals, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
+    void WriteIntermediateTextureData(float* mappedHeights, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
+
+    // Rendering objects.
+    ComPtr<ID3D12PipelineState> m_pipelineState;
+    std::unique_ptr<TerrainComputeNormals> m_computeNormals;
 
     // Heightmap data, lazily populated as tiles are edited (otherwise data is just created from noise on demand).
     std::unordered_map<Vec2i, HeightmapData> m_tileCaches[NumClipLevels];
@@ -87,6 +93,7 @@ private:
     VertexBuffer m_vertexBuffer;
     IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
+    uint64 m_computeFenceVal = 0;
     Vec2i m_clipmapTexelOffset = Vec2iZero;
     Vec2i m_globalDirtyRegionMin = Vec2iZero;
     Vec2i m_globalDirtyRegionMax = Vec2iZero; // Inclusive bounds.
@@ -94,7 +101,6 @@ private:
     // Water rendering data (TODO: Move water to it's own class).
     VertexBuffer m_waterVertexBuffer;
     IndexBuffer m_waterIndexBuffer;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
     ComPtr<ID3D12PipelineState> m_waterPipelineState;
 
     // Constants, textures.

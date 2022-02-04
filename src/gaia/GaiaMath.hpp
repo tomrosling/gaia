@@ -84,15 +84,22 @@ constexpr inline T Lerp(T a, T b, float t)
 template<typename T>
 constexpr inline bool IsPow2(T n)
 {
-    Assert(n != 0);
-    return (n & (n - 1)) == 0;
+    Assert(n != T(0));
+    return (n & (n - 1)) == T(0);
 }
 
 template<typename T>
-constexpr inline T AlignPow2(T n, T align)
+constexpr inline T RoundUpPow2(T n, T align)
 {
     Assert(IsPow2(align));
     return (n + align - 1) & ~(align - 1);
+}
+
+template <typename T>
+constexpr inline T RoundDownPow2(T n, T align)
+{
+    Assert(IsPow2(align));
+    return n & ~(align - 1);
 }
 
 inline int IFloorF(float x)

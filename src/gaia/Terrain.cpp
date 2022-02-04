@@ -1,4 +1,6 @@
 #include "Terrain.hpp"
+#include "TerrainComputeNormals.hpp"
+#include "TerrainConstants.hpp"
 #include "Renderer.hpp"
 #include <DirectXTex/DirectXTex.h>
 
@@ -7,6 +9,8 @@
 
 namespace gaia
 {
+
+using namespace TerrainConstants;
 
 struct TerrainVertex
 {
@@ -20,18 +24,6 @@ struct WaterVertex
     Vec4u8 colour;
 };
 
-static constexpr int VertexGridDimension = 256;                                     // Number of vertices in each dimension of the vertex grid.
-static constexpr int VertexBufferLength = math::Square(VertexGridDimension);        // Number of vertices in the vertex buffer.
-static constexpr int IndexBufferLength = 4 * math::Square(VertexGridDimension - 1); // Number of indices in the index buffer.
-static constexpr int HeightmapDimension = 256;                                      // Dimension of each heightmap texture.
-static constexpr float TexelSize = 0.05f;                                           // World size of a texel at clip level 0.
-static constexpr float VertexPatchSize = 0.05f * 64.f;                              // World size of a vertex patch.
-static constexpr DXGI_FORMAT HeightmapTexFormat = DXGI_FORMAT_R32_FLOAT;            // Texture format for the height map.
-static constexpr DXGI_FORMAT NormalMapTexFormat = DXGI_FORMAT_R8G8B8A8_SNORM;       // Texture format for the normal map.
-                                                                                    // TODO: Uint? Unorm? Possible to ditch alpha channel?
-static constexpr int TileDimension = 64;                                            // Dimension of each tile/chunk in m_tileCaches.
-static_assert(VertexBufferLength <= (1 << 16), "Index format too small");
-static_assert(HeightmapDimension * sizeof(float) == GetTexturePitchBytes(HeightmapDimension, sizeof(float)), "Heightmap size does not meet DX12 alignment requirements");
 
 // Returns index of a heightmap sample within a tile.
 static int TileIndex(int x, int z)
@@ -170,8 +162,14 @@ Terrain::Terrain()
 {
 }
 
+Terrain::~Terrain() = default;
+
 bool Terrain::Init(Renderer& renderer)
 {
+    m_computeNormals = std::make_unique<TerrainComputeNormals>();
+    if (!m_computeNormals->Init(renderer))
+        return false;
+
     CreateConstantBuffers(renderer);
 
     renderer.BeginUploads();
@@ -184,11 +182,23 @@ bool Terrain::Init(Renderer& renderer)
     ID3D12Resource* normalMaps[NumClipLevels] = {};
     for (int i = 0; i < NumClipLevels; ++i)
     {
+        Renderer::Texture2DParams texParams;
+        texParams.width = HeightmapDimension;
+        texParams.height = HeightmapDimension;
+
         ClipmapLevel& tile = m_clipmapLevels[i];
-        renderer.CreateTexture2D(tile.heightMap, tile.intermediateBuffer, HeightmapDimension, HeightmapDimension, HeightmapTexFormat);
+        texParams.format = HeightmapTexFormat;
+        texParams.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; // We'll transition this to and from D3D12_RESOURCE_STATE_COPY_DEST as required.
+        texParams.name = L"HeightMap";
+        tile.heightMap = renderer.CreateTexture2D(texParams);
+        tile.intermediateBuffer = renderer.CreateTexture2DUploadBuffer(texParams);
         heightMaps[i] = tile.heightMap.Get();
 
-        renderer.CreateTexture2D(tile.normalMap, tile.normalIntermediate, HeightmapDimension, HeightmapDimension, NormalMapTexFormat);
+        texParams.format = NormalMapTexFormat;
+        texParams.flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        texParams.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; // We'll initalise this with compute.
+        texParams.name = L"NormalMap";
+        tile.normalMap = renderer.CreateTexture2D(texParams);
         normalMaps[i] = tile.normalMap.Get();
     }
 
@@ -225,13 +235,20 @@ void Terrain::Build(Renderer& renderer)
     BuildIndexBuffer(renderer);
     BuildWater(renderer);
 
-    // Generate clipmap height data.
+    m_uploadFenceVal = renderer.EndUploads();
+
+    // NOTE: Heightmap textures are uploaded using the compute queue, not the copy queue.
+    // This is because we immediately want to compute normals after uploading.
+    // It's probably not optimal, but this way we don't have to make the compute queue wait for the copy queue to start doing that.
+    renderer.BeginCompute();
+
+    // Generate clipmap height data and compute normals.
     for (int level = 0; level < NumClipLevels; ++level)
     {
         UpdateHeightmapTextureLevel(renderer, level, -Vec2i(INT_MAX, INT_MAX) / 2, m_clipmapTexelOffset);
     }
 
-    m_uploadFenceVal = renderer.EndUploads();
+    m_computeFenceVal = renderer.EndCompute();
 }
 
 void Terrain::Render(Renderer& renderer)
@@ -249,6 +266,12 @@ void Terrain::Render(Renderer& renderer)
     {
         renderer.WaitUploads(m_uploadFenceVal);
         m_uploadFenceVal = 0;
+    }
+
+    if (m_computeFenceVal != 0)
+    {
+        renderer.WaitCompute(m_computeFenceVal);
+        m_computeFenceVal = 0;
     }
 
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
@@ -297,28 +320,40 @@ void Terrain::UpdateHeightmapTexture(Renderer& renderer)
         return;
 
     renderer.WaitCurrentFrame();
-    renderer.BeginUploads();
+    renderer.BeginCompute();
+    ID3D12GraphicsCommandList& commandList = renderer.GetComputeCommandList();
 
-    if (m_globalDirtyRegionMin.x < m_globalDirtyRegionMax.x && m_globalDirtyRegionMin.y < m_globalDirtyRegionMax.y)
+    Vec2i globalDirtyRegionMin = m_globalDirtyRegionMin;
+    Vec2i globalDirtyRegionMax = m_globalDirtyRegionMax;
+    m_globalDirtyRegionMin = Vec2iZero;
+    m_globalDirtyRegionMax = Vec2iZero;
+
+    if (globalDirtyRegionMin.x < globalDirtyRegionMax.x && globalDirtyRegionMin.y < globalDirtyRegionMax.y)
     {
-        for (int i = 0; i < NumClipLevels; ++i)
+        for (int level = 0; level < NumClipLevels; ++level)
         {
-            UploadHeightmapTextureRegion(renderer, i, m_globalDirtyRegionMin, m_globalDirtyRegionMax, newTexelOffset);
+            // TODO! Update normal map and move barriers
+            D3D12_RESOURCE_BARRIER preBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            commandList.ResourceBarrier(1, &preBarrier);
+
+            UploadHeightmapTextureRegion(renderer, level, globalDirtyRegionMin, globalDirtyRegionMax, newTexelOffset);
+
+            D3D12_RESOURCE_BARRIER postBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            commandList.ResourceBarrier(1, &postBarrier);
         }
-        m_globalDirtyRegionMin = Vec2iZero;
-        m_globalDirtyRegionMax = Vec2iZero;
     }
 
+    // Update heightmap textures.
     if (m_clipmapTexelOffset != newTexelOffset)
     {
-    
-        for (int i = 0; i < NumClipLevels; ++i)
+        for (int level = 0; level < NumClipLevels; ++level)
         {
-            UpdateHeightmapTextureLevel(renderer, i, m_clipmapTexelOffset, newTexelOffset);
+            UpdateHeightmapTextureLevel(renderer, level, m_clipmapTexelOffset, newTexelOffset);
         }
     }
 
-    m_uploadFenceVal = renderer.EndUploads();
+    m_computeFenceVal = renderer.EndCompute();
+
     m_clipmapTexelOffset = newTexelOffset;
 }
  
@@ -337,8 +372,6 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     newTexelOffset >>= level;
     if (oldTexelOffset == newTexelOffset)
         return;
-
-    // TODO: Pad by one cell to account for normal updates?
 
     // Calculate dirty region in texel space for this clip level.
     // All "regions" in this function actually represent a cross in the texture
@@ -364,28 +397,25 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
 
     // Calculate the whole world texel region that we want for the clip level.
     Vec2i wantRegionMin = newTexelOffset;
-    Vec2i wantRegionMax = newTexelOffset + fullSize;
+    Vec2i wantRegionMax = newTexelOffset + HeightmapSize;
 
-    // Map the intermediate buffers for the height and normal maps.
+    // Map the intermediate buffer for the height map.
     ClipmapLevel& levelData = m_clipmapLevels[level];
     float* mappedHeights = nullptr;
     levelData.intermediateBuffer->Map(0, nullptr, (void**)&mappedHeights);
     Assert(mappedHeights);
-    Vec4i8* mappedNormals = nullptr;
-    levelData.normalIntermediate->Map(0, nullptr, (void**)&mappedNormals);
-    Assert(mappedNormals);
 
     // Write the two (wrapped) quads we need to update to the mapped buffer.
     if ((worldUploadRegionMax.x - worldUploadRegionMin.x == HeightmapDimension) || (worldUploadRegionMax.y - worldUploadRegionMin.y == HeightmapDimension))
     {
         // If we need to copy the whole texture, just do it once.
-        WriteIntermediateTextureData(mappedHeights, mappedNormals, level, wantRegionMin, wantRegionMax);
+        WriteIntermediateTextureData(mappedHeights, level, wantRegionMin, wantRegionMax);
     }
     else
     {
         // Else copy the two (wrapping) slices.
-        WriteIntermediateTextureData(mappedHeights, mappedNormals, level, Vec2i(worldUploadRegionMin.x, wantRegionMin.y), Vec2i(worldUploadRegionMax.x, wantRegionMax.y));
-        WriteIntermediateTextureData(mappedHeights, mappedNormals, level, Vec2i(wantRegionMin.x, worldUploadRegionMin.y), Vec2i(wantRegionMax.x, worldUploadRegionMax.y));
+        WriteIntermediateTextureData(mappedHeights, level, Vec2i(worldUploadRegionMin.x, wantRegionMin.y), Vec2i(worldUploadRegionMax.x, wantRegionMax.y));
+        WriteIntermediateTextureData(mappedHeights, level, Vec2i(wantRegionMin.x, worldUploadRegionMin.y), Vec2i(wantRegionMax.x, worldUploadRegionMax.y));
     }
 
     // Calculate the region of the texture we wrote to (possibly wrapping across the edge).
@@ -397,59 +427,73 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     {
         // No vertical slice and no vertical wrap so only flush the rows we touched.
         D3D12_RANGE writeRange = { (size_t)HeightmapIndex(0, texUploadRegionMin.y), (size_t)HeightmapIndex(HeightmapDimension - 1, texUploadRegionMax.y) + 1 };
-        levelData.normalIntermediate->Unmap(0, &writeRange);
         levelData.intermediateBuffer->Unmap(0, &writeRange);
     }
     else
     {
         // Flush whole range because we had to touch either every row or at least the top and bottom row.
-        levelData.normalIntermediate->Unmap(0, nullptr);
         levelData.intermediateBuffer->Unmap(0, nullptr);
     }
 
     // Copy from the intermediate buffer to the actual texture.
     D3D12_TEXTURE_COPY_LOCATION heightDst = MakeDstTexCopyLocation(levelData.heightMap.Get());
     D3D12_TEXTURE_COPY_LOCATION heightSrc = MakeSrcTexCopyLocation(levelData.intermediateBuffer.Get(), HeightmapTexFormat);
-    D3D12_TEXTURE_COPY_LOCATION normalDst = MakeDstTexCopyLocation(levelData.normalMap.Get());
-    D3D12_TEXTURE_COPY_LOCATION normalSrc = MakeSrcTexCopyLocation(levelData.normalIntermediate.Get(), NormalMapTexFormat);
-    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+    ID3D12GraphicsCommandList& commandList = renderer.GetComputeCommandList();
+
+    D3D12_RESOURCE_BARRIER preBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+    commandList.ResourceBarrier(1, &preBarrier);
+
     auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive)
     {
         CopyTex2DRegion(commandList, heightDst, heightSrc, minInclusive, maxExclusive);
-        CopyTex2DRegion(commandList, normalDst, normalSrc, minInclusive, maxExclusive);
-        
     };
 
     if (worldUploadRegionMin.x + HeightmapDimension == worldUploadRegionMax.x || worldUploadRegionMin.y + HeightmapDimension == worldUploadRegionMax.y)
     {
         // Copy the whole thing because we moved the whole width or height of the texture.
-        CopyBox(Vec2iZero, fullSize);
-        return;
+        CopyBox(Vec2iZero, HeightmapSize);
+    }
+    else
+    {
+        // Copy vertical slice(s).
+        if (texUploadRegionMin.x < texUploadRegionMax.x)
+        {
+            CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
+        }
+        else if (texUploadRegionMin.x > texUploadRegionMax.x)
+        {
+            // Dirty region wraps across the boundary so copy two slices.
+            CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(HeightmapDimension, HeightmapDimension));
+            CopyBox(Vec2i(0, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
+        }
+
+        // Copy horizontal slice(s).
+        if (texUploadRegionMin.y < texUploadRegionMax.y)
+        {
+            CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
+        }
+        else if (texUploadRegionMin.y > texUploadRegionMax.y)
+        {
+            // Dirty region wraps across the boundary so copy two slices.
+            CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapDimension, HeightmapDimension));
+            CopyBox(Vec2i(0, 0), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
+        }
     }
 
-    // Copy vertical slice(s).
-    if (texUploadRegionMin.x < texUploadRegionMax.x)
-    {
-        CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
-    }
-    else if (texUploadRegionMin.x > texUploadRegionMax.x)
-    {
-        // Dirty region wraps across the boundary so copy two slices.
-        CopyBox(Vec2i(texUploadRegionMin.x, 0), Vec2i(HeightmapDimension, HeightmapDimension));
-        CopyBox(Vec2i(0, 0), Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
-    }
+    D3D12_RESOURCE_BARRIER postBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    commandList.ResourceBarrier(1, &postBarrier);
 
-    // Copy horizontal slice(s).
-    if (texUploadRegionMin.y < texUploadRegionMax.y)
+    // Update normal map. The compute shader can wrap around so always just two dispatches for this.
+    auto ComputeNormals = [&](Vec2i min, Vec2i max)
     {
-        CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
-    }
-    else if (texUploadRegionMin.y > texUploadRegionMax.y)
-    {
-        // Dirty region wraps across the boundary so copy two slices.
-        CopyBox(Vec2i(0, texUploadRegionMin.y), Vec2i(HeightmapDimension, HeightmapDimension));
-        CopyBox(Vec2i(0, 0), Vec2i(HeightmapDimension, texUploadRegionMax.y + 1));
-    }
+        // Pad the region by 1 cell in each direction since height affects adjacent normals.
+        Vec2i normalMin = min - Vec2i(1, 1);
+        Vec2i normalMax = max + Vec2i(1, 1);
+        m_computeNormals->Compute(renderer, m_clipmapLevels[level].heightMap.Get(), m_clipmapLevels[level].normalMap.Get(), normalMin, normalMax, level);
+    };
+
+    ComputeNormals(Vec2i(worldUploadRegionMin.x, 0), Vec2i(worldUploadRegionMax.x + 1, HeightmapDimension)); // Vertical slice
+    ComputeNormals(Vec2i(0, worldUploadRegionMin.y), Vec2i(HeightmapDimension, worldUploadRegionMax.y + 1)); // Horizontal slice
 }
 
 void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset)
@@ -457,6 +501,7 @@ void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i 
     // Upload a dirty AABB region (inclusive bounds) of a single clipmap level, after terrain has been modified.
     // Note that the logic in this function is different to UpdateHeightmapTextureLevel();
     // here we are dealing with a single AABB, whereas that function must upload a cross that spans the whole clipmap texture.
+    Assert(!"Terrain::UploadHeightmapTextureRegion does not have associated normal update");
 
     Assert(globalMin.x <= globalMax.x);
     Assert(globalMin.y <= globalMax.y);
@@ -488,7 +533,7 @@ void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i 
     Assert(mappedData);
 
     // Copy tile data to the intermediate buffer.
-    WriteIntermediateTextureData(mappedData, nullptr, level, levelGlobalMin, levelGlobalMax); // TODO: Not bothering with normals for now. Will handle in compute and then update this code.
+    WriteIntermediateTextureData(mappedData, level, levelGlobalMin, levelGlobalMax);
 
     // Calculate the region of the texture we will write to (possibly wrapping across the edge).
     Vec2i texUploadRegionMin(WrapHeightmapCoords(levelGlobalMin));
@@ -510,7 +555,7 @@ void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i 
     // Copy from the intermediate buffer to the actual texture.
     D3D12_TEXTURE_COPY_LOCATION dst = MakeDstTexCopyLocation(levelData.heightMap.Get());
     D3D12_TEXTURE_COPY_LOCATION src = MakeSrcTexCopyLocation(levelData.intermediateBuffer.Get(), HeightmapTexFormat);
-    ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
+    ID3D12GraphicsCommandList& commandList = renderer.GetComputeCommandList();
     auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive) { CopyTex2DRegion(commandList, dst, src, minInclusive, maxExclusive); };
 
     if (texUploadRegionMin.x < texUploadRegionMax.x)
@@ -1035,7 +1080,7 @@ Vec2i Terrain::CalcClipmapTexelOffset(const Vec3f& camPos) const
     return WorldPosToGlobalCoords(Vec2f(camPos.x, camPos.z));
 }
 
-void Terrain::WriteIntermediateTextureData(float* mappedHeights, Vec4i8* mappedNormals, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax)
+void Terrain::WriteIntermediateTextureData(float* mappedHeights, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax)
 {
     // TODO: We don't really need to address this buffer as if it were the actual texture;
     // we could just write to the start of it every time or use a ring buffer.
@@ -1052,36 +1097,6 @@ void Terrain::WriteIntermediateTextureData(float* mappedHeights, Vec4i8* mappedN
 
             int idx = HeightmapIndex(texCoords);
             mappedHeights[idx] = GetHeight(levelGlobalCoords, level);
-
-            if (mappedNormals)
-            {
-                Vec2i b = levelGlobalCoords + Vec2i(0, -1);
-                Vec2i c = levelGlobalCoords + Vec2i(1, -1);
-                Vec2i d = levelGlobalCoords + Vec2i(1, 0);
-                Vec2i e = levelGlobalCoords + Vec2i(1, 1);
-                Vec2i f = levelGlobalCoords + Vec2i(0, 1);
-                Vec2i g = levelGlobalCoords + Vec2i(-1, 1);
-                Vec2i h = levelGlobalCoords + Vec2i(-1, 0);
-                Vec2i i = levelGlobalCoords + Vec2i(-1, -1);
-
-                float zb = GetHeight(b, level);
-                float zc = GetHeight(c, level);
-                float zd = GetHeight(d, level);
-                float ze = GetHeight(e, level);
-                float zf = GetHeight(f, level);
-                float zg = GetHeight(g, level);
-                float zh = GetHeight(h, level);
-                float zi = GetHeight(i, level);
-
-                float nx = zg + 2.0 * zh + zi - zc - 2.0 * zd - ze;
-                float ny = TexelSize * 8.0f * (float)(1 << level);
-                float nz = 2.0 * zb + zc + zi - ze - 2.0 * zf - zg;
-
-                Vec3f normal = normalize(Vec3f(nx, ny, nz));
-
-                // Pack to int8s
-                mappedNormals[idx] = Vec4i8(Vec3i8(normal * 127.f), 0); // TODO: Add 0.5f * Sign(normal)?
-            }
         }
     }
 }
