@@ -34,6 +34,7 @@ enum E
     PSSharedConstants,
     PSConstantBuffer,
     VertexTexture0,
+    VertexTexture1,
     Texture0, // TODO: Could combine these into a single descriptor table, if we
     Texture1, //       can ensure that the descriptors used will be contiguous.
     Sampler0,
@@ -67,6 +68,7 @@ public:
 
     ComPtr<ID3DBlob> CompileShader(const wchar_t* filename, ShaderStage stage);
     ComPtr<ID3DBlob> LoadCompiledShader(const wchar_t* filename);
+    ComPtr<ID3D12PipelineState> CreateComputePipelineState(const wchar_t* shaderFilename, ID3D12RootSignature& rootSignature);
 
     void BeginUploads();
     ComPtr<ID3D12Resource> CreateResidentBuffer(size_t size);
@@ -75,8 +77,18 @@ public:
     ComPtr<ID3D12Resource> CreateConstantBuffer(size_t size);
     void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
     
+    struct Texture2DParams
+    {
+        size_t width = 0;
+        size_t height = 0;
+        DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
+        D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COPY_DEST;
+        const wchar_t* name = L"Texture2D";
+    };
     // Creates an empty texture. No SRV.
-    void CreateTexture2D(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t width, size_t height, DXGI_FORMAT format);
+    ComPtr<ID3D12Resource> CreateTexture2D(const Texture2DParams& params);
+    ComPtr<ID3D12Resource> CreateTexture2DUploadBuffer(const Texture2DParams& params);
 
     // Loads a texture and allocates an SRV.
     [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath);

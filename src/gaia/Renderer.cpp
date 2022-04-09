@@ -12,7 +12,7 @@ namespace gaia
 
 static constexpr int CBufferAlignment = 256;
 static constexpr int NumCBVDescriptors = 32;
-static constexpr int NumComputeDescriptors = 32;
+static constexpr int NumComputeDescriptors = 64;
 static constexpr int NumSamplers = 1;
 
 static int CountMips(int width, int height)
@@ -195,6 +195,12 @@ bool Renderer::Create(HWND hwnd)
         return false;
     m_computeCommandList->Close();
 
+#ifdef _DEBUG
+    m_directCommandList->SetName(L"DirectCommandList");
+    m_copyCommandList->SetName(L"CopyCommandList");
+    m_computeCommandList->SetName(L"ComputeCommandList");
+#endif
+
     // NOTE: We don't actually create the render and depth targets here, assuming ResizeViewport will be called with an appropriate size.
 
     if (!CreateRootSignature())
@@ -281,7 +287,8 @@ bool Renderer::CreateRootSignature()
 
     // Create descriptor tables
     D3D12_DESCRIPTOR_RANGE1 cbvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2);
-    D3D12_DESCRIPTOR_RANGE1 vertexTextureSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 0);
+    D3D12_DESCRIPTOR_RANGE1 vertexTexture0SrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 0);
+    D3D12_DESCRIPTOR_RANGE1 vertexTexture1SrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 8);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange0 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange1 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
     D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 1);
@@ -290,7 +297,8 @@ bool Renderer::CreateRootSignature()
     rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_ALL); // TODO: tidy up or rename! We're running out of root signature space. They should probably be in a cbuffer instead.
     rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 1, 0, D3D12_SHADER_VISIBILITY_ALL); //
     rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_ALL); // TODO: Rename!
-    rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &vertexTextureSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
+    rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &vertexTexture0SrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
+    rootParams[RootParam::VertexTexture1].InitAsDescriptorTable(1, &vertexTexture1SrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
     rootParams[RootParam::Texture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Sampler0].InitAsDescriptorTable(1, &samplerSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
@@ -499,6 +507,33 @@ ComPtr<ID3DBlob> Renderer::LoadCompiledShader(const wchar_t* filename)
     return blob;
 }
 
+ComPtr<ID3D12PipelineState> Renderer::CreateComputePipelineState(const wchar_t* shaderFilename, ID3D12RootSignature& rootSignature)
+{
+    // Load shader.
+    ComPtr<ID3DBlob> shader = LoadCompiledShader(shaderFilename);
+    if (!shader)
+        return nullptr;
+
+    // Create PSO.
+    struct PipelineStateStream
+    {
+        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE rootSignature;
+        CD3DX12_PIPELINE_STATE_STREAM_CS computeShader;
+    };
+
+    PipelineStateStream stream;
+    stream.rootSignature = &rootSignature;
+    stream.computeShader = CD3DX12_SHADER_BYTECODE(shader.Get());
+
+    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = {
+        sizeof(PipelineStateStream), &stream
+    };
+
+    ComPtr<ID3D12PipelineState> pipelineState;
+    m_device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&pipelineState));
+    return pipelineState;
+}
+
 void Renderer::BeginUploads()
 {
     m_copyCommandAllocator->Reset();
@@ -537,7 +572,7 @@ ComPtr<ID3D12Resource> Renderer::CreateReadbackBuffer(size_t size)
 
 ComPtr<ID3D12Resource> Renderer::CreateConstantBuffer(size_t size)
 {
-    return CreateUploadBuffer(math::AlignPow2<size_t>(size, CBufferAlignment));
+    return CreateUploadBuffer(math::RoundUpPow2<size_t>(size, CBufferAlignment));
 }
 
 void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
@@ -557,23 +592,36 @@ void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Reso
     ::UpdateSubresources<1>(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
 }
 
-void Renderer::CreateTexture2D(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t width, size_t height, DXGI_FORMAT format)
+ComPtr<ID3D12Resource> Renderer::CreateTexture2D(const Texture2DParams& params)
 {
     // Create resident texture.
     CD3DX12_HEAP_PROPERTIES defaultHeapProps(D3D12_HEAP_TYPE_DEFAULT);
-    CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(format, width, height);
+    CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(params.format, params.width, params.height);
     resourceDesc.MipLevels = 1; //CountMips(width, height);
+    resourceDesc.Flags = params.flags;
+    ComPtr<ID3D12Resource> texture;
     m_device->CreateCommittedResource(&defaultHeapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-                                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&textureOut));
+                                      params.initialState, nullptr, IID_PPV_ARGS(&texture));
     
+#ifdef _DEBUG
+    texture->SetName(params.name);
+#endif
+
+    return texture;
+}
+
+ComPtr<ID3D12Resource> Renderer::CreateTexture2DUploadBuffer(const Texture2DParams& params)
+{
     // Create upload buffer.
-    size_t texelBytes = DirectX::BitsPerPixel(format) >> 3;
-    intermediateBuffer = CreateUploadBuffer(width * height * texelBytes);
+    size_t texelBytes = DirectX::BitsPerPixel(params.format) >> 3;
+    ComPtr<ID3D12Resource> uploadBuffer = CreateUploadBuffer(params.width * params.height * texelBytes);
 
 #ifdef _DEBUG
-    textureOut->SetName(L"Texture2D");
-    intermediateBuffer->SetName(L"Texture2D intermediate buffer");
+    std::wstring uploadBufferName = std::wstring(params.name) + L" intermediate buffer";
+    uploadBuffer->SetName(uploadBufferName.c_str());
 #endif
+
+    return uploadBuffer;
 }
 
 int Renderer::AllocateTex2DSRVs(int count, ID3D12Resource** textures, DXGI_FORMAT format)
@@ -748,7 +796,7 @@ void Renderer::WaitCompute(UINT64 fenceVal)
 int Renderer::AllocateConstantBufferViews(ID3D12Resource* (&buffers)[BackbufferCount], UINT size)
 {
     Assert(m_nextCBVDescIndex < NumCBVDescriptors);
-    size = math::AlignPow2<UINT>(size, CBufferAlignment);
+    size = math::RoundUpPow2<UINT>(size, CBufferAlignment);
 
     // Allocate descriptors for both frames.
     for (int i = 0; i < BackbufferCount; ++i)
@@ -788,6 +836,7 @@ void Renderer::FreeSampler(int index)
 int Renderer::AllocateComputeUAV(ID3D12Resource* targetResource, const D3D12_UNORDERED_ACCESS_VIEW_DESC& desc)
 {
     Assert(m_nextComputeDescIndex < NumComputeDescriptors);
+    Assert(!targetResource || targetResource->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
     CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(m_computeDescHeap->GetCPUDescriptorHandleForHeapStart(), m_nextComputeDescIndex * m_cbvDescriptorSize);
     m_device->CreateUnorderedAccessView(targetResource, nullptr, &desc, cpuHandle);
     return m_nextComputeDescIndex++;

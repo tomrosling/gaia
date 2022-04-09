@@ -4,6 +4,7 @@ namespace gaia
 {
 
 class Renderer;
+class TerrainComputeNormals;
 struct TerrainVertex;
 struct WaterVertex;
 
@@ -11,6 +12,8 @@ class Terrain
 {
 public:
     Terrain();
+    ~Terrain();
+
     bool Init(Renderer& renderer);
     void Build(Renderer& renderer);
     void Render(Renderer& renderer);
@@ -25,11 +28,13 @@ public:
     void Imgui(Renderer& renderer);
 
 private:
+    using HeightmapData = std::vector<float>;
     static constexpr int NumClipLevels = 8; // Number of clipmap levels (i.e. number of textures).
 
     struct ClipmapLevel
     {
-        ComPtr<ID3D12Resource> texture;
+        ComPtr<ID3D12Resource> heightMap;
+        ComPtr<ID3D12Resource> normalMap;
         ComPtr<ID3D12Resource> intermediateBuffer; // TODO: Optimise this. We don't need a separate intermediate buffer per layer.
     };
 
@@ -66,24 +71,29 @@ private:
     void BuildIndexBuffer(Renderer& renderer);
     void BuildVertexBuffer(Renderer& renderer);
     void BuildWater(Renderer& renderer);
-    void UpdateHeightmapTexture(Renderer& renderer);
-    void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
-    void UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset);
-    std::vector<float>& GetOrCreateTile(Vec2i tile, int level);
+    void UpdateClipmapTextures(Renderer& renderer);
+    void UpdateClipmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
+    void UploadClipmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset);
+    HeightmapData& GetOrCreateTile(Vec2i tile, int level);
     float GetHeight(Vec2i levelGlobalCoords, int level) const;
     float GenerateHeight(Vec2i levelGlobalCoords, int level) const;
     Vec2f ToVertexPos(int globalX, int globalZ);
     Vec2i CalcClipmapTexelOffset(const Vec3f& camPos) const;
-    void WriteIntermediateHeightmapData(float* mappedData, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
+    void WriteIntermediateTextureData(float* mappedHeights, int level, Vec2i levelGlobalMin, Vec2i levelGlobalMax);
+
+    // Rendering objects.
+    ComPtr<ID3D12PipelineState> m_pipelineState;
+    std::unique_ptr<TerrainComputeNormals> m_computeNormals;
 
     // Heightmap data, lazily populated as tiles are edited (otherwise data is just created from noise on demand).
-    std::unordered_map<Vec2i, std::vector<float>> m_tileCaches[NumClipLevels];
+    std::unordered_map<Vec2i, HeightmapData> m_tileCaches[NumClipLevels];
 
     // Clipmap and vertex data.
     ClipmapLevel m_clipmapLevels[NumClipLevels];
     VertexBuffer m_vertexBuffer;
     IndexBuffer m_indexBuffer;
     uint64 m_uploadFenceVal = 0;
+    uint64 m_computeFenceVal = 0;
     Vec2i m_clipmapTexelOffset = Vec2iZero;
     Vec2i m_globalDirtyRegionMin = Vec2iZero;
     Vec2i m_globalDirtyRegionMax = Vec2iZero; // Inclusive bounds.
@@ -91,7 +101,6 @@ private:
     // Water rendering data (TODO: Move water to it's own class).
     VertexBuffer m_waterVertexBuffer;
     IndexBuffer m_waterIndexBuffer;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
     ComPtr<ID3D12PipelineState> m_waterPipelineState;
 
     // Constants, textures.
@@ -99,7 +108,8 @@ private:
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
     int m_diffuseTexDescIndices[2] = { -1, -1 };
-    int m_baseHeightmapTexIndex = -1;
+    int m_baseHeightMapTexIndex = -1;
+    int m_baseNormalMapTexIndex = -1;
     int m_heightmapSamplerDescIndex = -1;
     bool m_diffuseTexStateDirty = true;
     ComPtr<ID3D12Resource> m_diffuseTextures[2];

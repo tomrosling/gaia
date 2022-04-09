@@ -19,6 +19,10 @@ using Vec2i = glm::i32vec2;
 using Vec3i = glm::i32vec3;
 using Vec4i = glm::i32vec4;
 
+using Vec2i8 = glm::i8vec2;
+using Vec3i8 = glm::i8vec3;
+using Vec4i8 = glm::i8vec4;
+
 using Vec2u8 = glm::u8vec2;
 using Vec3u8 = glm::u8vec3;
 using Vec4u8 = glm::u8vec4;
@@ -49,6 +53,14 @@ static constexpr Vec2i Vec2iZero(0, 0);
 static constexpr Vec3i Vec3iZero(0, 0, 0);
 static constexpr Vec4i Vec4iZero(0, 0, 0, 0);
 
+static constexpr Vec2i8 Vec2i8Zero(0, 0);
+static constexpr Vec3i8 Vec3i8Zero(0, 0, 0);
+static constexpr Vec4i8 Vec4i8Zero(0, 0, 0, 0);
+
+static constexpr Vec2u8 Vec2u8Zero(0, 0);
+static constexpr Vec3u8 Vec3u8Zero(0, 0, 0);
+static constexpr Vec4u8 Vec4u8Zero(0, 0, 0, 0);
+
 namespace math
 {
 
@@ -72,15 +84,22 @@ constexpr inline T Lerp(T a, T b, float t)
 template<typename T>
 constexpr inline bool IsPow2(T n)
 {
-    Assert(n != 0);
-    return (n & (n - 1)) == 0;
+    Assert(n != T(0));
+    return (n & (n - 1)) == T(0);
 }
 
 template<typename T>
-constexpr inline T AlignPow2(T n, T align)
+constexpr inline T RoundUpPow2(T n, T align)
 {
     Assert(IsPow2(align));
     return (n + align - 1) & ~(align - 1);
+}
+
+template <typename T>
+constexpr inline T RoundDownPow2(T n, T align)
+{
+    Assert(IsPow2(align));
+    return n & ~(align - 1);
 }
 
 inline int IFloorF(float x)
