@@ -7,5 +7,6 @@ project(gaia)
 
 add_subdirectory(src/gaia)
 add_subdirectory(src/gaia_testbed)
+add_subdirectory(src/stb_perlin)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT gaia_testbed)

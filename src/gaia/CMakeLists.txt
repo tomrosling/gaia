@@ -61,6 +61,7 @@ target_link_libraries(gaia
     dxgi.lib
     d3dcompiler.lib
     dxguid.lib # For DirectXTex
+    stb_perlin
 )
 target_include_directories(gaia PUBLIC .
     "${dependencies_dir}/d3dx12"

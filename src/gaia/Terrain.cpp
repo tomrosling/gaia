@@ -3,8 +3,6 @@
 #include "TerrainConstants.hpp"
 #include "Renderer.hpp"
 #include <DirectXTex/DirectXTex.h>
-
-#define STB_PERLIN_IMPLEMENTATION
 #include <stb_perlin.h>
 
 namespace gaia
