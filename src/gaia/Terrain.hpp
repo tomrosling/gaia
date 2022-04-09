@@ -71,9 +71,9 @@ private:
     void BuildIndexBuffer(Renderer& renderer);
     void BuildVertexBuffer(Renderer& renderer);
     void BuildWater(Renderer& renderer);
-    void UpdateHeightmapTexture(Renderer& renderer);
-    void UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
-    void UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset);
+    void UpdateClipmapTextures(Renderer& renderer);
+    void UpdateClipmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset);
+    void UploadClipmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset);
     HeightmapData& GetOrCreateTile(Vec2i tile, int level);
     float GetHeight(Vec2i levelGlobalCoords, int level) const;
     float GenerateHeight(Vec2i levelGlobalCoords, int level) const;

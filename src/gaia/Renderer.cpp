@@ -12,7 +12,7 @@ namespace gaia
 
 static constexpr int CBufferAlignment = 256;
 static constexpr int NumCBVDescriptors = 32;
-static constexpr int NumComputeDescriptors = 32;
+static constexpr int NumComputeDescriptors = 64;
 static constexpr int NumSamplers = 1;
 
 static int CountMips(int width, int height)

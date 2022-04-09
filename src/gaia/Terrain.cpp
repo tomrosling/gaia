@@ -245,7 +245,7 @@ void Terrain::Build(Renderer& renderer)
     // Generate clipmap height data and compute normals.
     for (int level = 0; level < NumClipLevels; ++level)
     {
-        UpdateHeightmapTextureLevel(renderer, level, -Vec2i(INT_MAX, INT_MAX) / 2, m_clipmapTexelOffset);
+        UpdateClipmapTextureLevel(renderer, level, -Vec2i(INT_MAX, INT_MAX) / 2, m_clipmapTexelOffset);
     }
 
     m_computeFenceVal = renderer.EndCompute();
@@ -255,7 +255,7 @@ void Terrain::Render(Renderer& renderer)
 {
     if (!m_freezeClipmap)
     {
-        UpdateHeightmapTexture(renderer);
+        UpdateClipmapTextures(renderer);
     }
 
     // Update shader UV offset.
@@ -312,7 +312,7 @@ void Terrain::Render(Renderer& renderer)
     commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
 }
 
-void Terrain::UpdateHeightmapTexture(Renderer& renderer)
+void Terrain::UpdateClipmapTextures(Renderer& renderer)
 {
     Vec2i newTexelOffset = CalcClipmapTexelOffset(renderer.GetCamPos());
 
@@ -323,23 +323,16 @@ void Terrain::UpdateHeightmapTexture(Renderer& renderer)
     renderer.BeginCompute();
     ID3D12GraphicsCommandList& commandList = renderer.GetComputeCommandList();
 
+    // Update modified region, if any.
     Vec2i globalDirtyRegionMin = m_globalDirtyRegionMin;
     Vec2i globalDirtyRegionMax = m_globalDirtyRegionMax;
     m_globalDirtyRegionMin = Vec2iZero;
     m_globalDirtyRegionMax = Vec2iZero;
-
     if (globalDirtyRegionMin.x < globalDirtyRegionMax.x && globalDirtyRegionMin.y < globalDirtyRegionMax.y)
     {
         for (int level = 0; level < NumClipLevels; ++level)
         {
-            // TODO! Update normal map and move barriers
-            D3D12_RESOURCE_BARRIER preBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
-            commandList.ResourceBarrier(1, &preBarrier);
-
-            UploadHeightmapTextureRegion(renderer, level, globalDirtyRegionMin, globalDirtyRegionMax, newTexelOffset);
-
-            D3D12_RESOURCE_BARRIER postBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            commandList.ResourceBarrier(1, &postBarrier);
+            UploadClipmapTextureRegion(renderer, level, globalDirtyRegionMin, globalDirtyRegionMax, newTexelOffset);
         }
     }
 
@@ -348,7 +341,7 @@ void Terrain::UpdateHeightmapTexture(Renderer& renderer)
     {
         for (int level = 0; level < NumClipLevels; ++level)
         {
-            UpdateHeightmapTextureLevel(renderer, level, m_clipmapTexelOffset, newTexelOffset);
+            UpdateClipmapTextureLevel(renderer, level, m_clipmapTexelOffset, newTexelOffset);
         }
     }
 
@@ -357,7 +350,7 @@ void Terrain::UpdateHeightmapTexture(Renderer& renderer)
     m_clipmapTexelOffset = newTexelOffset;
 }
  
-void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset)
+void Terrain::UpdateClipmapTextureLevel(Renderer& renderer, int level, Vec2i oldTexelOffset, Vec2i newTexelOffset)
 {
     // Update the clipmap at the given level based on camera movement.
     // Texturing is done toroidally, so when the camera moves we replace the furthest slice
@@ -443,10 +436,7 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
     D3D12_RESOURCE_BARRIER preBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
     commandList.ResourceBarrier(1, &preBarrier);
 
-    auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive)
-    {
-        CopyTex2DRegion(commandList, heightDst, heightSrc, minInclusive, maxExclusive);
-    };
+    auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive) { CopyTex2DRegion(commandList, heightDst, heightSrc, minInclusive, maxExclusive); };
 
     if (worldUploadRegionMin.x + HeightmapDimension == worldUploadRegionMax.x || worldUploadRegionMin.y + HeightmapDimension == worldUploadRegionMax.y)
     {
@@ -492,16 +482,16 @@ void Terrain::UpdateHeightmapTextureLevel(Renderer& renderer, int level, Vec2i o
         m_computeNormals->Compute(renderer, m_clipmapLevels[level].heightMap.Get(), m_clipmapLevels[level].normalMap.Get(), normalMin, normalMax, level);
     };
 
+    // Pass world UVs into compute since it does the wrapping for us and relies on min < max.
     ComputeNormals(Vec2i(worldUploadRegionMin.x, 0), Vec2i(worldUploadRegionMax.x + 1, HeightmapDimension)); // Vertical slice
     ComputeNormals(Vec2i(0, worldUploadRegionMin.y), Vec2i(HeightmapDimension, worldUploadRegionMax.y + 1)); // Horizontal slice
 }
 
-void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset)
+void Terrain::UploadClipmapTextureRegion(Renderer& renderer, int level, Vec2i globalMin, Vec2i globalMax, Vec2i newTexelOffset)
 {
     // Upload a dirty AABB region (inclusive bounds) of a single clipmap level, after terrain has been modified.
     // Note that the logic in this function is different to UpdateHeightmapTextureLevel();
     // here we are dealing with a single AABB, whereas that function must upload a cross that spans the whole clipmap texture.
-    Assert(!"Terrain::UploadHeightmapTextureRegion does not have associated normal update");
 
     Assert(globalMin.x <= globalMax.x);
     Assert(globalMin.y <= globalMax.y);
@@ -556,7 +546,14 @@ void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i 
     D3D12_TEXTURE_COPY_LOCATION dst = MakeDstTexCopyLocation(levelData.heightMap.Get());
     D3D12_TEXTURE_COPY_LOCATION src = MakeSrcTexCopyLocation(levelData.intermediateBuffer.Get(), HeightmapTexFormat);
     ID3D12GraphicsCommandList& commandList = renderer.GetComputeCommandList();
-    auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive) { CopyTex2DRegion(commandList, dst, src, minInclusive, maxExclusive); };
+    auto CopyBox = [&](Vec2i minInclusive, Vec2i maxExclusive)
+    {
+        Assert(minInclusive.y < maxExclusive.y);
+        CopyTex2DRegion(commandList, dst, src, minInclusive, maxExclusive);
+    };
+
+    D3D12_RESOURCE_BARRIER preBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+    commandList.ResourceBarrier(1, &preBarrier);
 
     if (texUploadRegionMin.x < texUploadRegionMax.x)
     {
@@ -568,7 +565,7 @@ void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i 
         else
         {
             // Dirty region wraps across the boundary so copy two regions.
-            CopyBox(Vec2i(texUploadRegionMin.x, 0), texUploadRegionMax);
+            CopyBox(Vec2i(texUploadRegionMin.x, 0), texUploadRegionMax + Vec2i(1, 1));
             CopyBox(texUploadRegionMin, Vec2i(texUploadRegionMax.x + 1, HeightmapDimension));
         }
     }
@@ -589,6 +586,16 @@ void Terrain::UploadHeightmapTextureRegion(Renderer& renderer, int level, Vec2i 
             CopyBox(Vec2iZero, texUploadRegionMax + Vec2i(1, 1));
         }
     }
+
+    D3D12_RESOURCE_BARRIER postBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_clipmapLevels[level].heightMap.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    commandList.ResourceBarrier(1, &postBarrier);
+
+    // Update normal map. The compute shader can wrap around so always just a single dispatch for this.
+    // Pad the region by 1 cell in each direction since height affects adjacent normals.
+    // Pass world UVs into compute since it does the wrapping for us and relies on min < max.
+    Vec2i normalMin = levelGlobalMin - Vec2i(1, 1);
+    Vec2i normalMax = levelGlobalMax + Vec2i(1, 1);
+    m_computeNormals->Compute(renderer, m_clipmapLevels[level].heightMap.Get(), m_clipmapLevels[level].normalMap.Get(), normalMin, normalMax, level);
 }
 
 Terrain::HeightmapData& Terrain::GetOrCreateTile(Vec2i tile, int level)
