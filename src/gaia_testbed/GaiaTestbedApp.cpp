@@ -210,12 +210,21 @@ LRESULT GaiaTestbedApp::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 int GaiaTestbedApp::Run()
 {
     MSG msg = {};
-    while (msg.message != WM_QUIT)
+    while (true)
     {
         while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             ::TranslateMessage(&msg);
             ::DispatchMessage(&msg);
+
+            if (msg.message == WM_QUIT)
+            {
+                // Wait for GPU operations to finish before shutting down.
+                m_renderer.WaitCurrentFrame();
+
+                // Return the WM_QUIT return code.
+                return (int)msg.wParam;
+            }
         }
 
         float dt = m_timer.GetSecondsAndReset();
@@ -226,11 +235,8 @@ int GaiaTestbedApp::Run()
         Render();
     }
 
-    // Wait for GPU operations to finish before shutting down.
-    m_renderer.WaitCurrentFrame();
-
-    // Return the WM_QUIT return code.
-    return (int)msg.wParam;
+    Assert(!"Unreachable");
+    return -1;
 }
 
 void GaiaTestbedApp::Update(float dt)
