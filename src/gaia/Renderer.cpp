@@ -291,6 +291,8 @@ bool Renderer::CreateRootSignature()
     D3D12_DESCRIPTOR_RANGE1 vertexTexture1SrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 8, 8);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange0 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange1 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
+    D3D12_DESCRIPTOR_RANGE1 srvDescRange2 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
+    D3D12_DESCRIPTOR_RANGE1 srvDescRange3 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
     D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 1);
 
     CD3DX12_ROOT_PARAMETER1 rootParams[RootParam::Count];
@@ -301,6 +303,8 @@ bool Renderer::CreateRootSignature()
     rootParams[RootParam::VertexTexture1].InitAsDescriptorTable(1, &vertexTexture1SrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
     rootParams[RootParam::Texture0].InitAsDescriptorTable(1, &srvDescRange0, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::Texture2].InitAsDescriptorTable(1, &srvDescRange2, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::Texture3].InitAsDescriptorTable(1, &srvDescRange3, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Sampler0].InitAsDescriptorTable(1, &samplerSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
 
     // Static sampler for textures.
@@ -673,7 +677,7 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
     {
         subresources.resize(1);
         ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                                DirectX::WIC_LOADER_MIP_RESERVE, &rawTexture, decodedData, subresources.front());
+                                                DirectX::WIC_LOADER_MIP_RESERVE | DirectX::WIC_LOADER_IGNORE_SRGB, &rawTexture, decodedData, subresources.front());
     }
     Assert(SUCCEEDED(ret));
     Assert(0 < subresources.size() && subresources.size() <= 6);
@@ -745,7 +749,7 @@ void Renderer::GenerateMips(ID3D12Resource* texture)
 void Renderer::BindDescriptor(int descIndex, RootParam::E slot)
 {
     Assert(descIndex < m_nextCBVDescIndex);
-    Assert(slot >= RootParam::VSSharedConstants || (RootParam::VertexTexture0 <= slot && slot <= RootParam::Texture1));
+    Assert(slot >= RootParam::VSSharedConstants || (RootParam::VertexTexture0 <= slot && slot <= RootParam::Texture3));
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(m_cbvDescHeaps[m_currentBuffer]->GetGPUDescriptorHandleForHeapStart(), descIndex * m_cbvDescriptorSize);
     m_directCommandList->SetGraphicsRootDescriptorTable(slot, gpuHandle);

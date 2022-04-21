@@ -37,6 +37,8 @@ enum E
     VertexTexture1,
     Texture0, // TODO: Could combine these into a single descriptor table, if we
     Texture1, //       can ensure that the descriptors used will be contiguous.
+    Texture2, //
+    Texture3, //
     Sampler0,
     Count
 };

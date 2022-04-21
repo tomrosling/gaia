@@ -104,20 +104,24 @@ private:
     ComPtr<ID3D12PipelineState> m_waterPipelineState;
 
     // Constants, textures.
+    static const int NumDetailTextureSets = 2;
     ComPtr<ID3D12Resource> m_constantBuffers[BackbufferCount];
     TerrainPSConstantBuffer* m_mappedConstantBuffers[BackbufferCount] = {};
     int m_cbufferDescIndex = -1;
     int m_diffuseTexDescIndices[2] = { -1, -1 };
+    int m_normalTexDescIndices[2] = { -1, -1 };
     int m_baseHeightMapTexIndex = -1;
     int m_baseNormalMapTexIndex = -1;
     int m_heightmapSamplerDescIndex = -1;
-    bool m_diffuseTexStateDirty = true;
-    ComPtr<ID3D12Resource> m_diffuseTextures[2];
-    ComPtr<ID3D12Resource> m_intermediateDiffuseTexBuffers[2];
+    bool m_detailTexStateDirty = true;
+    ComPtr<ID3D12Resource> m_diffuseTextures[NumDetailTextureSets];
+    ComPtr<ID3D12Resource> m_intermediateDiffuseTexBuffers[NumDetailTextureSets];
+    ComPtr<ID3D12Resource> m_detailNormalMaps[NumDetailTextureSets];
+    ComPtr<ID3D12Resource> m_intermediateNoramlMapBuffers[NumDetailTextureSets];
 
     // Tweakables/generation data.
     int m_seed = 0;
-    NoiseOctave m_noiseOctaves[4];
+    NoiseOctave m_noiseOctaves[3];
     bool m_randomiseSeed = true;
     bool m_wireframeMode = false;
     bool m_freezeClipmap = false;

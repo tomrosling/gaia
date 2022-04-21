@@ -94,6 +94,10 @@ foreach(config ${CMAKE_CONFIGURATION_TYPES})
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
       "${data_dir}/textures/ground_grey_diff_1k.png" "${outputDir}/ground_grey_diff_1k.png")
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+      "${data_dir}/textures/aerial_grass_rock_nor_dx_1k.png" "${outputDir}/aerial_grass_rock_nor_dx_1k.png")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+      "${data_dir}/textures/ground_grey_nor_dx_1k.png" "${outputDir}/ground_grey_nor_dx_1k.png")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
       "${data_dir}/textures/skymap.dds" "${outputDir}/skymap.dds")
 
     # Create symlinks for shader source to allow hotloading.

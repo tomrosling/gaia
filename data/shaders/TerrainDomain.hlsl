@@ -35,6 +35,7 @@ struct DomainShaderOutput
 {
     float3 worldPos : POSITION;
     float3 nrm : NORMAL;
+    float3 tangent : TANGENT;
     float4 pos : SV_POSITION;
 };
 
@@ -105,6 +106,10 @@ DomainShaderOutput main(HullShaderConstantOutput input, float2 domain : SV_Domai
     OUT.worldPos = float3(pos2D.x, height, pos2D.y);
     OUT.pos = mul(projMat, mul(viewMat, float4(OUT.worldPos, 1.0)));
     OUT.nrm = SampleBlended(NormalMapTex, uv, clipLevel, logMaxCoord).rgb;
+
+    // Calculate tangent, always in XY plane (assuming normal has nonzero Y component).
+    // Approximately, T = X, B = Z, N = Y
+    OUT.tangent = cross(OUT.nrm, float3(0.0, 0.0, 1.0));
 
     return OUT;
 }

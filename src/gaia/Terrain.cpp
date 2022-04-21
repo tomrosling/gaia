@@ -155,8 +155,7 @@ static void CopyTex2DRegion(ID3D12GraphicsCommandList& commandList, D3D12_TEXTUR
 Terrain::Terrain()
     : m_noiseOctaves{ { 0.005f, 3.5f },
                       { 0.02f, 1.0f },
-                      { 0.1f, 0.05f },
-                      { 0.37f, 0.02f } }
+                      { 0.1f, 0.05f } }
 {
 }
 
@@ -174,6 +173,8 @@ bool Terrain::Init(Renderer& renderer)
 
     m_diffuseTexDescIndices[0] = renderer.LoadTexture(m_diffuseTextures[0], m_intermediateDiffuseTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
     m_diffuseTexDescIndices[1] = renderer.LoadTexture(m_diffuseTextures[1], m_intermediateDiffuseTexBuffers[1], L"ground_grey_diff_1k.png");
+    m_normalTexDescIndices[0] = renderer.LoadTexture(m_detailNormalMaps[0], m_intermediateNoramlMapBuffers[0], L"aerial_grass_rock_nor_dx_1k.png");
+    m_normalTexDescIndices[1] = renderer.LoadTexture(m_detailNormalMaps[1], m_intermediateNoramlMapBuffers[1], L"ground_grey_nor_dx_1k.png");
 
     // Create a set of clipmap textures.
     ID3D12Resource* heightMaps[NumClipLevels] = {};
@@ -212,6 +213,8 @@ bool Terrain::Init(Renderer& renderer)
     m_intermediateDiffuseTexBuffers[1] = nullptr;
     renderer.GenerateMips(m_diffuseTextures[0].Get());
     renderer.GenerateMips(m_diffuseTextures[1].Get());
+    renderer.GenerateMips(m_detailNormalMaps[0].Get());
+    renderer.GenerateMips(m_detailNormalMaps[1].Get());
 
     return LoadCompiledShaders(renderer);
 }
@@ -274,17 +277,18 @@ void Terrain::Render(Renderer& renderer)
 
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
 
-    if (m_diffuseTexStateDirty)
+    if (m_detailTexStateDirty)
     {
         // After creating the textures, we should transition them to the shader resource states for efficiency.
-        for (ComPtr<ID3D12Resource>& tex : m_diffuseTextures)
+        D3D12_RESOURCE_BARRIER barriers[2 * NumDetailTextureSets] = {};
+        for (int i = 0; i < NumDetailTextureSets; ++i)
         {
-            CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-                tex.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            commandList.ResourceBarrier(1, &barrier);
+            barriers[2 * i + 0] = CD3DX12_RESOURCE_BARRIER::Transition(m_diffuseTextures[i].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            barriers[2 * i + 1] = CD3DX12_RESOURCE_BARRIER::Transition(m_detailNormalMaps[i].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         }
+        commandList.ResourceBarrier((int)std::size(barriers), barriers);
 
-        m_diffuseTexStateDirty = false;
+        m_detailTexStateDirty = false;
     }
 
     // Set PSO/shader state
@@ -294,6 +298,8 @@ void Terrain::Render(Renderer& renderer)
     renderer.BindDescriptor(m_baseNormalMapTexIndex, RootParam::VertexTexture1);
     renderer.BindDescriptor(m_diffuseTexDescIndices[0], RootParam::Texture0);
     renderer.BindDescriptor(m_diffuseTexDescIndices[1], RootParam::Texture1);
+    renderer.BindDescriptor(m_normalTexDescIndices[0], RootParam::Texture2);
+    renderer.BindDescriptor(m_normalTexDescIndices[1], RootParam::Texture3);
     renderer.BindSampler(m_heightmapSamplerDescIndex);
 
     // Render the terrain itself.
