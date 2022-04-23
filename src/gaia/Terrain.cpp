@@ -1,6 +1,7 @@
 #include "Terrain.hpp"
 #include "TerrainComputeNormals.hpp"
 #include "TerrainConstants.hpp"
+#include "TerrainErosion.hpp"
 #include "Renderer.hpp"
 #include <DirectXTex/DirectXTex.h>
 #include <stb_perlin.h>
@@ -226,6 +227,9 @@ bool Terrain::Init(Renderer& renderer)
 
 void Terrain::Build(Renderer& renderer)
 {
+    // Generate an eroded heightmap
+    BuildHeightmapOffline();
+
     // Ensure offset is up to date.
     m_clipmapTexelOffset = CalcClipmapTexelOffset(renderer.GetCamPos());
 
@@ -822,6 +826,77 @@ void Terrain::Imgui(Renderer& renderer)
     ImGui::End();
 }
 
+void Terrain::BuildHeightmapOffline()
+{
+    // Generate terrain and simulate erosion
+    // TODO: Split big tile into smaller ones
+    const int GenerateDimension = 4 * 1024;
+    HeightmapData bigHeightmap;
+    bigHeightmap.reserve(GenerateDimension * GenerateDimension);
+
+    // We have to initialise this tile. Fill in the noise data.
+    bigHeightmap.reserve(math::Square(TileDimension));
+    for (int z = 0; z < GenerateDimension; ++z)
+    {
+        for (int x = 0; x < GenerateDimension; ++x)
+        {
+            bigHeightmap.push_back(GenerateHeight(Vec2i(x, z), 0));
+        }
+    }
+
+    // TODO: Pass to erosion
+    TerrainErosion erosionSim;
+    //erosionSim.Simulate(bigHeightmap, GenerateDimension);
+
+    // Abuse the tile cache for now to pre-populate eroded terrain
+    // Note: the area we write to is (0, 0) - (GenerateDimension, GenerateDimension), rather than being centred at the origin
+    const int NumTiles = GenerateDimension / TileDimension;
+    for (int tileZ = 0; tileZ < NumTiles; ++tileZ)
+    {
+        for (int tileX = 0; tileX < NumTiles; ++tileX)
+        {
+            Vec2i tile(tileX, tileZ);
+            HeightmapData& tileHeightmap = m_tileCaches[0][tile];
+            tileHeightmap.reserve(math::Square(TileDimension));
+            for (int z = 0; z < TileDimension; ++z)
+            {
+                for (int x = 0; x < TileDimension; ++x)
+                {
+                    Vec2i bigHeightmapCoords = Vec2i(tileX, tileZ) * TileDimension + Vec2i(x, z);
+                    tileHeightmap.push_back(bigHeightmap[bigHeightmapCoords.y * GenerateDimension + bigHeightmapCoords.x]);
+                }
+            }
+        }
+    }
+
+    // Fill in lower mip tile caches based on above
+    for (int level = 1; level < NumClipLevels; ++level)
+    {
+        const int NumTiles = math::max(GenerateDimension / (TileDimension << level), 1);
+        for (int tileZ = 0; tileZ < NumTiles; ++tileZ)
+        {
+            for (int tileX = 0; tileX < NumTiles; ++tileX)
+            {
+                Vec2i tile(tileX, tileZ);
+
+                HeightmapData& tileHeightmap = m_tileCaches[level][tile];
+                Vec2i tileBaseCoords = tile * TileDimension;
+                tileHeightmap.reserve(math::Square(TileDimension));
+                for (int z = 0; z < TileDimension; ++z)
+                {
+                    for (int x = 0; x < TileDimension; ++x)
+                    {
+                        // TODO: do actual mip calculation rather than point sample
+                        Vec2i levelGlobalCoords = tile * TileDimension + Vec2i(x, z);
+                        Vec2i prevLevelGlobalCoords = levelGlobalCoords << 1;
+                        tileHeightmap.push_back(GetHeight(prevLevelGlobalCoords, level - 1));
+                    }
+                }
+            }
+        }
+    }
+}
+
 bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* hullShader, ID3DBlob* domainShader, ID3DBlob* pixelShader)
 {
     // Create PSO
@@ -1063,7 +1138,8 @@ float Terrain::GetHeight(Vec2i levelGlobalCoords, int level) const
         return it->second[TileIndex(tileCoords.x, tileCoords.y)];
     }
 
-    return GenerateHeight(levelGlobalCoords, level);
+    return 0.5f;
+    //return GenerateHeight(levelGlobalCoords, level);
 }
 
 float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level) const
