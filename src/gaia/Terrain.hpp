@@ -121,7 +121,10 @@ private:
 
     // Tweakables/generation data.
     int m_seed = 0;
-    NoiseOctave m_noiseOctaves[3];
+    float m_baseHeight = 0.f;
+    NoiseOctave m_ridgeNoiseParams[2] = {};
+    NoiseOctave m_ridgeNoiseMultiplierParams[1] = {};
+    NoiseOctave m_whiteNoiseParams[4] = {};
     bool m_randomiseSeed = true;
     bool m_wireframeMode = false;
     bool m_freezeClipmap = false;

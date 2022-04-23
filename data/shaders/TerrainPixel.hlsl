@@ -30,9 +30,9 @@ float4 main(DomainShaderOutput IN) : SV_Target
     float2 uv = IN.worldPos.xz * 0.15;
 
     // Blend between grass and rocks detail based on input height and normal.
-    float texBlend = 1.0;
-    texBlend += 0.5 * IN.worldPos.y;
-    texBlend -= 1.5 * IN.nrm.y;
+    float texBlend = 0.5;
+    texBlend += 0.25 * IN.worldPos.y;
+    texBlend -= 2.0 * IN.nrm.y;
     texBlend = saturate(texBlend);
 
     // Normalize tangent frame.

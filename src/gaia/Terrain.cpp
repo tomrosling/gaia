@@ -153,9 +153,14 @@ static void CopyTex2DRegion(ID3D12GraphicsCommandList& commandList, D3D12_TEXTUR
 
 
 Terrain::Terrain()
-    : m_noiseOctaves{ { 0.005f, 3.5f },
-                      { 0.02f, 1.0f },
-                      { 0.1f, 0.05f } }
+    : m_baseHeight(-12.f)
+    , m_ridgeNoiseParams{ { 0.001f, 16.f },
+                          { 0.002f, 6.f } }
+    , m_ridgeNoiseMultiplierParams{ { 0.001f, 0.25f } }
+    , m_whiteNoiseParams{ { 0.005f, 3.5f },
+                          { 0.01f, 1.0f },
+                          { 0.02f, 0.5f },
+                          { 0.1f, 0.03f } }
 {
 }
 
@@ -749,20 +754,37 @@ void Terrain::Imgui(Renderer& renderer)
 {
     if (ImGui::Begin("Terrain"))
     {
-        if (ImGui::CollapsingHeader("Perlin Octaves"))
+        ImGui::DragFloat("Base Height", &m_baseHeight, 0.01f, -20.f, 20.f);
+
+        auto noiseParams = [](auto& params, int baseID)
         {
-            for (int i = 0; i < (int)std::size(m_noiseOctaves); ++i)
+            for (int i = 0; i < (int)std::size(params); ++i)
             {
                 ImGui::Columns(2);
-                ImGui::PushID(i);
-                ImGui::DragFloat("Frequency", &m_noiseOctaves[i].frequency, 0.001f, 0.f, 1.f);
+                ImGui::PushID(baseID | i);
+                ImGui::DragFloat("Frequency", &params[i].frequency, 0.0002f, 0.f, 0.1f, "%0.4f");
                 ImGui::NextColumn();
-                ImGui::DragFloat("Amplitude", &m_noiseOctaves[i].amplitude, 0.01f, 0.f, 10.f);
+                ImGui::DragFloat("Amplitude", &params[i].amplitude, 0.01f, -10.f, 30.f);
                 ImGui::NextColumn();
                 ImGui::PopID();
             }
 
             ImGui::Columns(1);
+        };
+
+        if (ImGui::CollapsingHeader("Ridge Noise"))
+        {
+            noiseParams(m_ridgeNoiseParams, 0);
+        }
+
+        if (ImGui::CollapsingHeader("Ridge Noise Multiplier"))
+        {
+            noiseParams(m_ridgeNoiseMultiplierParams, 0x4000);
+        }
+
+        if (ImGui::CollapsingHeader("White Noise"))
+        {
+            noiseParams(m_whiteNoiseParams, 0x8000);
         }
 
         if (ImGui::CollapsingHeader("Coordinates"))
@@ -1064,13 +1086,31 @@ float Terrain::GenerateHeight(Vec2i levelGlobalCoords, int level) const
         fGlobalCoords += Vec2f(0.5f, 0.5f);
     }
 
-    float height = 1.5f;
+    float height = m_baseHeight;
 
-    // May be better just to use one of the built in stb_perlin functions
-    // to generate multiple octaves, but this is quite nice for now.
-    for (int i = 0; i < (int)std::size(m_noiseOctaves); ++i)
+    // Offset perlin seeds for each type of noise.
+    const int ridgeBaseSeed = 0x1000;
+    const int ridgeWhiteBaseSeed = 0x2000;
+
+    // Calculate a multiplier for the ridge noise, based on normal white noise.
+    float ridgeNoiseMultiplier = 1.f;
+    for (int i = 0; i < (int)std::size(m_ridgeNoiseMultiplierParams); ++i)
     {
-        auto [frequency, amplitude] = m_noiseOctaves[i];
+        auto [frequency, amplitude] = m_ridgeNoiseMultiplierParams[i];
+        ridgeNoiseMultiplier += amplitude * stb_perlin_noise3_seed(globalCoords.x * frequency, 0.f, globalCoords.y * frequency, 0, 0, 0, m_seed + ridgeWhiteBaseSeed + i);
+    }
+    
+    // Do ridge noise to approximate mountain ranges.
+    for (int i = 0; i < (int)std::size(m_ridgeNoiseParams); ++i)
+    {
+        auto [frequency, amplitude] = m_ridgeNoiseParams[i];
+        height += ridgeNoiseMultiplier * amplitude * (1.f - fabsf(stb_perlin_noise3_seed(globalCoords.x * frequency, 0.f, globalCoords.y * frequency, 0, 0, 0, m_seed + ridgeBaseSeed + i)));
+    }
+
+    // Apply regular white noise on top.
+    for (int i = 0; i < (int)std::size(m_whiteNoiseParams); ++i)
+    {
+        auto [frequency, amplitude] = m_whiteNoiseParams[i];
         height += amplitude * stb_perlin_noise3_seed(globalCoords.x * frequency, 0.f, globalCoords.y * frequency, 0, 0, 0, m_seed + i);
     }
 
