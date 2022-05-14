@@ -14,8 +14,8 @@ public:
 
 private:
     // State
-    Vec3f m_pos{ 0.f, 40.f, 0.f };
-    Vec2f m_rot{ -0.5f, 1.25f * Pif };
+    Vec3f m_pos{ 0.f, 80.f, 0.f };
+    Vec2f m_rot{ -0.707f, 1.25f * Pif };
 
     // Config
     float m_linSpeed = 8.f;

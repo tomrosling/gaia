@@ -11,6 +11,8 @@ namespace gaia
 
 using namespace TerrainConstants;
 
+TerrainErosion g_erosionSim; // TODO: Make not global
+
 struct TerrainVertex
 {
     Vec2f pos;
@@ -132,7 +134,6 @@ static D3D12_TEXTURE_COPY_LOCATION MakeSrcTexCopyLocation(ID3D12Resource* interm
 
 static D3D12_TEXTURE_COPY_LOCATION MakeDstTexCopyLocation(ID3D12Resource* texture)
 {
-
     D3D12_TEXTURE_COPY_LOCATION dst = {};
     dst.pResource = texture;
     dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -263,6 +264,8 @@ void Terrain::Build(Renderer& renderer)
 
 void Terrain::Render(Renderer& renderer)
 {
+    g_erosionSim.DebugRender();
+
     if (!m_freezeClipmap)
     {
         UpdateClipmapTextures(renderer);
@@ -758,6 +761,15 @@ void Terrain::Imgui(Renderer& renderer)
 {
     if (ImGui::Begin("Terrain"))
     {
+        if (ImGui::Button("Step Erosion"))
+        {
+            for (int i = 0; i < 1000; ++i)
+                g_erosionSim.StepParticles();
+            RecreateTileCache();
+            m_globalDirtyRegionMin = Vec2iZero;
+            m_globalDirtyRegionMax = Vec2i(4096, 4096); // TODO: ack hardcoded
+        }
+
         ImGui::DragFloat("Base Height", &m_baseHeight, 0.01f, -20.f, 20.f);
 
         auto noiseParams = [](auto& params, int baseID)
@@ -826,12 +838,13 @@ void Terrain::Imgui(Renderer& renderer)
     ImGui::End();
 }
 
+const int GenerateDimension = 4 * 1024;
+static std::vector<float> bigHeightmap; // TODO: make not static
+
 void Terrain::BuildHeightmapOffline()
 {
     // Generate terrain and simulate erosion
     // TODO: Split big tile into smaller ones
-    const int GenerateDimension = 4 * 1024;
-    HeightmapData bigHeightmap;
     bigHeightmap.reserve(GenerateDimension * GenerateDimension);
 
     // We have to initialise this tile. Fill in the noise data.
@@ -844,10 +857,14 @@ void Terrain::BuildHeightmapOffline()
         }
     }
 
-    // TODO: Pass to erosion
-    TerrainErosion erosionSim;
-    //erosionSim.Simulate(bigHeightmap, GenerateDimension);
+    // Do erosion simulation
+    g_erosionSim.Simulate(bigHeightmap, GenerateDimension);
 
+    RecreateTileCache();
+}
+
+void Terrain::RecreateTileCache()
+{
     // Abuse the tile cache for now to pre-populate eroded terrain
     // Note: the area we write to is (0, 0) - (GenerateDimension, GenerateDimension), rather than being centred at the origin
     const int NumTiles = GenerateDimension / TileDimension;
@@ -857,6 +874,7 @@ void Terrain::BuildHeightmapOffline()
         {
             Vec2i tile(tileX, tileZ);
             HeightmapData& tileHeightmap = m_tileCaches[0][tile];
+            tileHeightmap.clear();
             tileHeightmap.reserve(math::Square(TileDimension));
             for (int z = 0; z < TileDimension; ++z)
             {
@@ -881,6 +899,7 @@ void Terrain::BuildHeightmapOffline()
 
                 HeightmapData& tileHeightmap = m_tileCaches[level][tile];
                 Vec2i tileBaseCoords = tile * TileDimension;
+                tileHeightmap.clear();
                 tileHeightmap.reserve(math::Square(TileDimension));
                 for (int z = 0; z < TileDimension; ++z)
                 {
