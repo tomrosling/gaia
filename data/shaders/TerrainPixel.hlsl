@@ -1,6 +1,7 @@
 cbuffer PSSharedConstants : register(b1)
 {
     float3 CamPos;
+    float3 SunDirection;
 };
 
 cbuffer TerrainPSConstantBuffer : register(b2)
@@ -26,7 +27,6 @@ struct DomainShaderOutput
 
 float4 main(DomainShaderOutput IN) : SV_Target
 {
-    const float3 LightDir =  normalize(float3(0.65, -0.5, 0.65)); // World space
     float2 uv = IN.worldPos.xz * 0.15;
 
     // Blend between grass and rocks detail based on input height and normal.
@@ -50,14 +50,14 @@ float4 main(DomainShaderOutput IN) : SV_Target
     float3 nrm = mul(detailNrm, tbn);
     
     // Calculate diffuse lighting
-    float ndotl = max(-dot(nrm, LightDir), 0.0);
+    float ndotl = max(-dot(nrm, SunDirection), 0.0);
     float3 grassDiffuse = DiffuseTex0.Sample(StaticSampler, uv).rgb;
     float3 rocksDiffuse = DiffuseTex1.Sample(StaticSampler, uv).rgb;
     float3 diffuse = lerp(grassDiffuse, rocksDiffuse, texBlend);
     diffuse *= ndotl;
 
     // Specular: this is probably awful.
-    //float3 r = reflect(LightDir, nrm);
+    //float3 r = reflect(SunDirection, nrm);
     //float3 viewDir = normalize(CamPos - IN.worldPos);
     //float specular = pow(saturate(dot(r, viewDir)), 256.0);
 

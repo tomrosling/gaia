@@ -1,6 +1,7 @@
 cbuffer PSSharedConstants : register(b1)
 {
     float3 CamPos;
+    float3 SunDirection;
 };
 
 struct PixelShaderInput
@@ -12,14 +13,12 @@ struct PixelShaderInput
 
 float4 main(PixelShaderInput IN) : SV_Target
 {
-    const float3 LightDir = normalize(float3(0.5, -0.7, 0.3));
-
     // Diffuse
-    float ndotl = -dot(IN.nrm, LightDir);
+    float ndotl = -dot(IN.nrm, SunDirection);
     float3 diffuse = ndotl * IN.col.rgb;
 
     // Specular: this is probably awful.
-    float3 r = reflect(LightDir, IN.nrm);
+    float3 r = reflect(SunDirection, IN.nrm);
     float3 viewDir = normalize(CamPos - IN.worldPos);
     float specular = pow(saturate(dot(r, viewDir)), 256.0);
 

@@ -1,6 +1,7 @@
 cbuffer PSSharedConstants : register(b1)
 {
     float3 CamPos;
+    float3 SunDirection;
 };
 
 TextureCube CubemapTex : register(t0);

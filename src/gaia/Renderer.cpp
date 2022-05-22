@@ -33,6 +33,9 @@ struct VSSharedConstants
 struct PSSharedConstants
 {
     Vec3f camPos;
+    float pad1;
+    Vec3f sunDirection;
+    float pad2;
 };
 
 Renderer::Renderer()
@@ -409,7 +412,7 @@ void Renderer::BeginFrame()
     // Set global uniforms
     UploadModelMatrix(Mat4fIdentity);
 
-    PSSharedConstants pixelConstants = { Vec3f(math::affineInverse(m_viewMat)[3]) };
+    PSSharedConstants pixelConstants = { Vec3f(math::affineInverse(m_viewMat)[3]), 0.f, m_sunDirection, 0.f };
     m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::PSSharedConstants, sizeof(PSSharedConstants) / 4, &pixelConstants, 0);
 
     // Set descriptor heaps.
@@ -929,6 +932,15 @@ void Renderer::Imgui()
         Vec3f camPos = Vec3f(math::affineInverse(m_viewMat)[3]);
         ImGui::Text("Cam Pos: (%.2f, %.2f, %.2f)", camPos.x, camPos.y, camPos.z);
         ImGui::Checkbox("VSync", &m_vsync);
+
+        float sunAltitude = acosf(m_sunDirection.y);
+        float sunAzimuth = atan2f(m_sunDirection.x, m_sunDirection.z);
+        bool azimuthChanged = ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -Pif, Pif);
+        bool altitudeChanged = ImGui::SliderFloat("Sun Altitude", &sunAltitude, 0.f, Pif);
+        if (azimuthChanged || altitudeChanged)
+        {
+            m_sunDirection = Vec3f(sinf(sunAltitude) * sinf(sunAzimuth), cosf(sunAltitude), sinf(sunAltitude) * cosf(sunAzimuth));
+        }
 
         if (ImGui::CollapsingHeader("Stats (Direct Command List Only)"))
         {

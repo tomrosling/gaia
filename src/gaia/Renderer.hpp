@@ -62,6 +62,8 @@ public:
     Vec3f GetCamPos() const { return Vec3f(math::affineInverse(m_viewMat)[3]); }
     void UploadModelMatrix(const Mat4f& modelMat);
 
+    void SetSunDirection(const Vec3f& dir) { m_sunDirection = dir; }
+
     ID3D12Device2& GetDevice() { Assert(m_device); return *m_device.Get(); }
     ID3D12RootSignature& GetRootSignature() { Assert(m_rootSignature); return *m_rootSignature.Get(); }
     ID3D12GraphicsCommandList2& GetDirectCommandList() { Assert(m_directCommandList); return *m_directCommandList.Get(); }
@@ -182,6 +184,7 @@ private:
 
     Mat4f m_viewMat = Mat4fIdentity;
     Mat4f m_projMat = Mat4fIdentity;
+    Vec3f m_sunDirection = math::normalize(Vec3f(0.65f, -0.5f, 0.65f));
 };
 
 }
