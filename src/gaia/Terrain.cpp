@@ -176,10 +176,10 @@ bool Terrain::Init(Renderer& renderer)
 
     renderer.BeginUploads();
 
-    m_diffuseTexDescIndices[0] = renderer.LoadTexture(m_diffuseTextures[0], m_intermediateDiffuseTexBuffers[0], L"aerial_grass_rock_diff_1k.png");
-    m_diffuseTexDescIndices[1] = renderer.LoadTexture(m_diffuseTextures[1], m_intermediateDiffuseTexBuffers[1], L"ground_grey_diff_1k.png");
-    m_normalTexDescIndices[0] = renderer.LoadTexture(m_detailNormalMaps[0], m_intermediateNoramlMapBuffers[0], L"aerial_grass_rock_nor_dx_1k.png");
-    m_normalTexDescIndices[1] = renderer.LoadTexture(m_detailNormalMaps[1], m_intermediateNoramlMapBuffers[1], L"ground_grey_nor_dx_1k.png");
+    m_diffuseTexDescIndices[0] = renderer.LoadTexture(m_diffuseTextures[0], m_intermediateDiffuseTexBuffers[0], L"aerial_grass_rock_diff_4k.dds", true);
+    m_diffuseTexDescIndices[1] = renderer.LoadTexture(m_diffuseTextures[1], m_intermediateDiffuseTexBuffers[1], L"ground_grey_diff_4k.dds", true);
+    m_normalTexDescIndices[0] = renderer.LoadTexture(m_detailNormalMaps[0], m_intermediateNoramlMapBuffers[0], L"aerial_grass_rock_nor_dx_2k.dds", true);
+    m_normalTexDescIndices[1] = renderer.LoadTexture(m_detailNormalMaps[1], m_intermediateNoramlMapBuffers[1], L"ground_grey_nor_dx_2k.dds", true);
 
     // Create a set of clipmap textures.
     ID3D12Resource* heightMaps[NumClipLevels] = {};
@@ -209,17 +209,7 @@ bool Terrain::Init(Renderer& renderer)
     m_baseHeightMapTexIndex = renderer.AllocateTex2DSRVs((int)std::size(heightMaps), heightMaps, HeightmapTexFormat);
     m_baseNormalMapTexIndex = renderer.AllocateTex2DSRVs((int)std::size(normalMaps), normalMaps, NormalMapTexFormat);
 
-    renderer.WaitUploads(renderer.EndUploads());
-
-    // Must be done after upload has completed!
-    // TODO: Expose m_d3d12CommandQueue->Wait(other.m_d3d12Fence.Get(), other.m_FenceValue)
-    //       via some kind of CommandQueue::GPUWait() interface!
-    m_intermediateDiffuseTexBuffers[0] = nullptr;
-    m_intermediateDiffuseTexBuffers[1] = nullptr;
-    renderer.GenerateMips(m_diffuseTextures[0].Get());
-    renderer.GenerateMips(m_diffuseTextures[1].Get());
-    renderer.GenerateMips(m_detailNormalMaps[0].Get());
-    renderer.GenerateMips(m_detailNormalMaps[1].Get());
+    m_uploadFenceVal = renderer.EndUploads();
 
     return LoadCompiledShaders(renderer);
 }

@@ -95,7 +95,7 @@ public:
     ComPtr<ID3D12Resource> CreateTexture2DUploadBuffer(const Texture2DParams& params);
 
     // Loads a texture and allocates an SRV.
-    [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath);
+    [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath, bool loadMips);
 
     [[nodiscard]] UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);

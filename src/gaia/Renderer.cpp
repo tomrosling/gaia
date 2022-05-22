@@ -661,7 +661,7 @@ void Renderer::FreeSRVs(int index, int count)
     m_nextCBVDescIndex -= count;
 }
 
-int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath)
+int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath, bool loadMips)
 {
     // Load the file to a buffer and create the destination texture.
     // NOTE: Loaded with D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS under the assumption
@@ -670,20 +670,23 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
     std::unique_ptr<uint8[]> decodedData;
     std::vector<D3D12_SUBRESOURCE_DATA> subresources = {};
     bool cubemap = false;
+    D3D12_RESOURCE_FLAGS resourceFlags = loadMips ? D3D12_RESOURCE_FLAG_NONE : D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     HRESULT ret;
     if (wcscmp(GetFileExtension(filepath), L"dds") == 0)
     {
-        ret = DirectX::LoadDDSTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+        ret = DirectX::LoadDDSTextureFromFileEx(m_device.Get(), filepath, 0, resourceFlags,
             DirectX::DDS_LOADER_DEFAULT, &rawTexture, decodedData, subresources, nullptr, &cubemap);
     }
     else
     {
         subresources.resize(1);
-        ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+        ret = DirectX::LoadWICTextureFromFileEx(m_device.Get(), filepath, 0, resourceFlags,
                                                 DirectX::WIC_LOADER_MIP_RESERVE | DirectX::WIC_LOADER_IGNORE_SRGB, &rawTexture, decodedData, subresources.front());
     }
+
+    const int MaxSubresources = 16;
     Assert(SUCCEEDED(ret));
-    Assert(0 < subresources.size() && subresources.size() <= 6);
+    Assert(0 < subresources.size() && subresources.size() <= MaxSubresources);
 
     if (SUCCEEDED(ret))
     {
@@ -695,8 +698,9 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
         // when it is used on a direct command list, but for now, calling code should 
         // then transition to D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE for performance.
         // Could manage that internally to the renderer if we wanted.
+        size_t bufferSize = std::accumulate(subresources.begin(), subresources.end(), (size_t)0, [](size_t lhs, const D3D12_SUBRESOURCE_DATA& rhs) { return lhs + rhs.SlicePitch; });
         intermediateBuffer = CreateUploadBuffer(subresources.size() * subresources.front().SlicePitch);
-        ::UpdateSubresources<6>(m_copyCommandList.Get(), rawTexture, intermediateBuffer.Get(), 0, 0, subresources.size(), subresources.data());
+        ::UpdateSubresources<MaxSubresources>(m_copyCommandList.Get(), rawTexture, intermediateBuffer.Get(), 0, 0, subresources.size(), subresources.data());
 
         // Allocate an SRV.
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -710,7 +714,7 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
         else 
         {
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-            srvDesc.Texture2D.MipLevels = CountMips(desc.Width, desc.Height);
+            srvDesc.Texture2D.MipLevels = loadMips ? subresources.size() : CountMips(desc.Width, desc.Height);
         }
 
         for (const ComPtr<ID3D12DescriptorHeap>& heap : m_cbvDescHeaps)

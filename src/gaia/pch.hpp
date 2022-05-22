@@ -2,6 +2,7 @@
 #include <climits>
 
 #include <memory>
+#include <numeric>
 #include <algorithm>
 #include <vector>
 #include <unordered_map> // TODO: Write/use a real hashmap!

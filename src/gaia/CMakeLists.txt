@@ -90,13 +90,13 @@ foreach(config ${CMAKE_CONFIGURATION_TYPES})
     
     # Symlink texture data to working directories.
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${data_dir}/textures/aerial_grass_rock_diff_1k.png" "${outputDir}/aerial_grass_rock_diff_1k.png")
+      "${data_dir}/textures/aerial_grass_rock_diff_4k.dds" "${outputDir}/aerial_grass_rock_diff_4k.dds")
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${data_dir}/textures/ground_grey_diff_1k.png" "${outputDir}/ground_grey_diff_1k.png")
+      "${data_dir}/textures/ground_grey_diff_4k.dds" "${outputDir}/ground_grey_diff_4k.dds")
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${data_dir}/textures/aerial_grass_rock_nor_dx_1k.png" "${outputDir}/aerial_grass_rock_nor_dx_1k.png")
+      "${data_dir}/textures/aerial_grass_rock_nor_dx_2k.dds" "${outputDir}/aerial_grass_rock_nor_dx_2k.dds")
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-      "${data_dir}/textures/ground_grey_nor_dx_1k.png" "${outputDir}/ground_grey_nor_dx_1k.png")
+      "${data_dir}/textures/ground_grey_nor_dx_2k.dds" "${outputDir}/ground_grey_nor_dx_2k.dds")
     execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
       "${data_dir}/textures/skymap.dds" "${outputDir}/skymap.dds")
 

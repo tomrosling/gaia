@@ -16,7 +16,7 @@ bool Skybox::Init(Renderer& renderer)
         return false;
 
     renderer.BeginUploads();
-    m_cubemapSrvIndex = renderer.LoadTexture(m_cubemapTexResource, m_intermediateCubemapTexResource, L"skymap.dds");
+    m_cubemapSrvIndex = renderer.LoadTexture(m_cubemapTexResource, m_intermediateCubemapTexResource, L"skymap.dds", false);
 
     using SkyboxVertex = Vec3f;
     const SkyboxVertex VertexData[] = {
