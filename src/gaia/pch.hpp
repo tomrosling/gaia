@@ -25,5 +25,6 @@
 
 #include "GaiaDefs.hpp"
 #include "GaiaMath.hpp"
+#include "GaiaGfxTypes.hpp"
 #include "GaiaUtils.hpp"
 #include "Span.hpp"

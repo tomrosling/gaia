@@ -1,4 +1,5 @@
 #pragma once
+#include <DirectXTex/DirectXTex.h>
 
 namespace gaia
 {
@@ -11,6 +12,11 @@ inline const wchar_t* GetFileExtension(const wchar_t* filepath)
     }
 
     return nullptr;
+}
+
+inline int GetFormatSize(DXGI_FORMAT format)
+{
+    return (int)DirectX::BitsPerPixel(format) >> 3;
 }
 
 constexpr inline int GetTexturePitchBytes(int width, int bytesPerTexel)

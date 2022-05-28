@@ -6,15 +6,8 @@ namespace gaia
 
 void StaticMesh::Init(Renderer& renderer, const Span<const uchar>& vertexData, int vertexStride, const Span<const uint16>& indexData)
 {
-    renderer.CreateBuffer(m_vb.buffer, m_vb.intermediateBuffer, vertexData.Size(), vertexData.Data());
-    m_vb.view.BufferLocation = m_vb.buffer->GetGPUVirtualAddress();
-    m_vb.view.SizeInBytes = vertexData.Size();
-    m_vb.view.StrideInBytes = vertexStride;
-
-    renderer.CreateBuffer(m_ib.buffer, m_ib.intermediateBuffer, indexData.Size() * sizeof(uint16), indexData.Data());
-    m_ib.view.BufferLocation = m_ib.buffer->GetGPUVirtualAddress();
-    m_ib.view.Format = DXGI_FORMAT_R16_UINT;
-    m_ib.view.SizeInBytes = indexData.Size() * sizeof(uint16);
+    m_vb = renderer.CreateVertexBuffer(vertexData, vertexStride);
+    m_ib = renderer.CreateIndexBuffer(Span<const uchar>((const uchar*)indexData.Data(), indexData.Size() * sizeof(uint16)), DXGI_FORMAT_R16_UINT);
 }
 
 void StaticMesh::Render(Renderer& renderer)

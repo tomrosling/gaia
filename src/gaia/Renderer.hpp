@@ -16,15 +16,7 @@ namespace gaia
 
 class CommandQueue;
 class GenerateMips;
-
-enum class ShaderStage
-{
-    Vertex,
-    Hull,
-    Domain,
-    Pixel,
-    Count
-};
+class UploadManager;
 
 namespace RootParam
 {
@@ -74,12 +66,21 @@ public:
     ComPtr<ID3DBlob> LoadCompiledShader(const wchar_t* filename);
     ComPtr<ID3D12PipelineState> CreateComputePipelineState(const wchar_t* shaderFilename, ID3D12RootSignature& rootSignature);
 
-    void BeginUploads();
+    VertexBuffer CreateVertexBuffer(const Span<const uchar>& vertexData, int vertexStride);
+    IndexBuffer CreateIndexBuffer(const Span<const uchar>& indexData, DXGI_FORMAT format);
+
+    // Creates a resident buffer. Temporarily creates an internal upload buffer to copy the input data via.
+    ComPtr<ID3D12Resource> CreateBuffer(size_t size, const void* data);
+
+    // Creates a resident buffer and an upload buffer. The user is expected to fill the upload buffer and trigger the copy;
+    // A reference to the upload buffer is held internally until the upload completes.
+    ComPtr<ID3D12Resource> CreateBuffer(ID3D12Resource*& outUploadBuffer, size_t size);
+
+    // Lower-level single buffer creation.
     ComPtr<ID3D12Resource> CreateResidentBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateUploadBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateReadbackBuffer(size_t size);
     ComPtr<ID3D12Resource> CreateConstantBuffer(size_t size);
-    void CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data);
     
     struct Texture2DParams
     {
@@ -95,9 +96,10 @@ public:
     ComPtr<ID3D12Resource> CreateTexture2DUploadBuffer(const Texture2DParams& params);
 
     // Loads a texture and allocates an SRV.
-    [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath, bool loadMips);
+    [[nodiscard]] int LoadTexture(ComPtr<ID3D12Resource>& textureOut, const wchar_t* filepath, bool loadMips);
 
-    [[nodiscard]] UINT64 EndUploads();
+    void BeginUploads();
+    UINT64 EndUploads();
     void WaitUploads(UINT64 fenceVal);
     void GenerateMips(ID3D12Resource* texture);
     void BindDescriptor(int descIndex, RootParam::E slot);
@@ -165,6 +167,7 @@ private:
     std::unique_ptr<CommandQueue> m_directCommandQueue;
     std::unique_ptr<CommandQueue> m_copyCommandQueue;
     std::unique_ptr<CommandQueue> m_computeCommandQueue;
+    std::unique_ptr<UploadManager> m_uploadManager;
     std::unique_ptr<gaia::GenerateMips> m_genMips;
 
     D3D12_VIEWPORT m_viewport = {};

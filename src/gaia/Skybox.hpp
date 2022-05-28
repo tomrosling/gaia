@@ -16,18 +16,11 @@ private:
 
     ComPtr<ID3D12PipelineState> m_pipelineState;
 
-    ComPtr<ID3D12Resource> m_intermediateVertexBuffer;
-    ComPtr<ID3D12Resource> m_vertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
-    ComPtr<ID3D12Resource> m_intermediateIndexBuffer;
-    ComPtr<ID3D12Resource> m_indexBuffer;
-    D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
+    VertexBuffer m_vertexBuffer;
+    IndexBuffer m_indexBuffer;
 
     ComPtr<ID3D12Resource> m_cubemapTexResource;
-    ComPtr<ID3D12Resource> m_intermediateCubemapTexResource;
     int m_cubemapSrvIndex = -1;
-
-    uint64 m_uploadFenceVal = 0;
 };
 
 }

@@ -15,20 +15,6 @@ public:
     void Render(Renderer& renderer);
 
 private:
-    struct VertexBuffer
-    {
-        ComPtr<ID3D12Resource> buffer;
-        ComPtr<ID3D12Resource> intermediateBuffer;
-        D3D12_VERTEX_BUFFER_VIEW view = {};
-    };
-
-    struct IndexBuffer
-    {
-        ComPtr<ID3D12Resource> buffer;
-        ComPtr<ID3D12Resource> intermediateBuffer;
-        D3D12_INDEX_BUFFER_VIEW view = {};
-    };
-
     VertexBuffer m_vb;
     IndexBuffer m_ib;
 };

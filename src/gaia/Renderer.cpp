@@ -6,6 +6,7 @@
 #include <examples/imgui_impl_dx12.h>
 #include "CommandQueue.hpp"
 #include "GenerateMips.hpp"
+#include "UploadManager.hpp"
 
 namespace gaia
 {
@@ -209,6 +210,8 @@ bool Renderer::Create(HWND hwnd)
     if (!CreateRootSignature())
         return false;
 
+    m_uploadManager = std::make_unique<UploadManager>();
+
     m_genMips = std::make_unique<gaia::GenerateMips>();
     if (!m_genMips->Init(*this))
         return false;
@@ -378,6 +381,9 @@ void Renderer::BeginFrame()
     ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_currentBuffer].Get();
     ID3D12Resource* backBuffer = m_renderTargets[m_currentBuffer].Get();
 
+    // Wait/clear pending uploads.
+    m_uploadManager->BeginFrame(*m_copyCommandQueue);
+
     // Reset command list
     commandAllocator->Reset();
     m_directCommandList->Reset(commandAllocator, nullptr);
@@ -541,6 +547,28 @@ ComPtr<ID3D12PipelineState> Renderer::CreateComputePipelineState(const wchar_t* 
     return pipelineState;
 }
 
+VertexBuffer Renderer::CreateVertexBuffer(const Span<const uchar>& vertexData, int vertexStride)
+{
+    VertexBuffer ret;
+    ret.buffer = CreateBuffer(vertexData.Size(), vertexData.Data());
+    ret.view.BufferLocation = ret.buffer->GetGPUVirtualAddress();
+    ret.view.SizeInBytes = vertexData.Size();
+    ret.view.StrideInBytes = vertexStride;
+    return ret;
+}
+
+IndexBuffer Renderer::CreateIndexBuffer(const Span<const uchar>& indexData, DXGI_FORMAT format)
+{
+    Assert(format == DXGI_FORMAT_R8_UINT || format == DXGI_FORMAT_R16_UINT || format == DXGI_FORMAT_R32_UINT);
+
+    IndexBuffer ret;
+    ret.buffer = CreateBuffer(indexData.Size(), indexData.Data());
+    ret.view.BufferLocation = ret.buffer->GetGPUVirtualAddress();
+    ret.view.SizeInBytes = indexData.Size();
+    ret.view.Format = DXGI_FORMAT_R16_UINT;
+    return ret;
+}
+
 void Renderer::BeginUploads()
 {
     m_copyCommandAllocator->Reset();
@@ -582,21 +610,33 @@ ComPtr<ID3D12Resource> Renderer::CreateConstantBuffer(size_t size)
     return CreateUploadBuffer(math::RoundUpPow2<size_t>(size, CBufferAlignment));
 }
 
-void Renderer::CreateBuffer(ComPtr<ID3D12Resource>& bufferOut, ComPtr<ID3D12Resource>& intermediateBuffer, size_t size, const void* data)
+ComPtr<ID3D12Resource> Renderer::CreateBuffer(size_t size, const void* data)
 {
-    // Create destination buffer
-    bufferOut = CreateResidentBuffer(size);
-
-    // Create an intermediate buffer to upload via
-    // (this must remain in scope in the calling code until the command list has been executed)
-    intermediateBuffer = CreateUploadBuffer(size);
+    // Create destination and upload buffer.
+    ID3D12Resource* uploadBuffer = nullptr;
+    ComPtr<ID3D12Resource> residentBuffer = CreateBuffer(uploadBuffer, size);
 
     // Upload initial data.
     D3D12_SUBRESOURCE_DATA subresourceData = {};
     subresourceData.pData = data;
     subresourceData.RowPitch = size;
     subresourceData.SlicePitch = size;
-    ::UpdateSubresources<1>(m_copyCommandList.Get(), bufferOut.Get(), intermediateBuffer.Get(), 0, 0, 1, &subresourceData);
+    ::UpdateSubresources<1>(m_copyCommandList.Get(), residentBuffer.Get(), uploadBuffer, 0, 0, 1, &subresourceData);
+
+    return residentBuffer;
+}
+
+ComPtr<ID3D12Resource> Renderer::CreateBuffer(ID3D12Resource*& outUploadBuffer, size_t size)
+{
+    // Create destination buffer
+    ComPtr<ID3D12Resource> residentBuffer = CreateResidentBuffer(size);
+
+    // Create an intermediate buffer to upload via
+    ComPtr<ID3D12Resource> uploadBuffer = CreateUploadBuffer(size);
+    m_uploadManager->AddIntermediateResource(uploadBuffer.Get());
+    outUploadBuffer = uploadBuffer.Get();
+
+    return residentBuffer;
 }
 
 ComPtr<ID3D12Resource> Renderer::CreateTexture2D(const Texture2DParams& params)
@@ -620,7 +660,7 @@ ComPtr<ID3D12Resource> Renderer::CreateTexture2D(const Texture2DParams& params)
 ComPtr<ID3D12Resource> Renderer::CreateTexture2DUploadBuffer(const Texture2DParams& params)
 {
     // Create upload buffer.
-    size_t texelBytes = DirectX::BitsPerPixel(params.format) >> 3;
+    size_t texelBytes = GetFormatSize(params.format);
     ComPtr<ID3D12Resource> uploadBuffer = CreateUploadBuffer(params.width * params.height * texelBytes);
 
 #ifdef _DEBUG
@@ -661,7 +701,7 @@ void Renderer::FreeSRVs(int index, int count)
     m_nextCBVDescIndex -= count;
 }
 
-int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resource>& intermediateBuffer, const wchar_t* filepath, bool loadMips)
+int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, const wchar_t* filepath, bool loadMips)
 {
     // Load the file to a buffer and create the destination texture.
     // NOTE: Loaded with D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS under the assumption
@@ -699,7 +739,8 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
         // then transition to D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE for performance.
         // Could manage that internally to the renderer if we wanted.
         size_t bufferSize = std::accumulate(subresources.begin(), subresources.end(), (size_t)0, [](size_t lhs, const D3D12_SUBRESOURCE_DATA& rhs) { return lhs + rhs.SlicePitch; });
-        intermediateBuffer = CreateUploadBuffer(subresources.size() * subresources.front().SlicePitch);
+        ComPtr<ID3D12Resource> intermediateBuffer = CreateUploadBuffer(subresources.size() * subresources.front().SlicePitch);
+        m_uploadManager->AddIntermediateResource(intermediateBuffer.Get());
         ::UpdateSubresources<MaxSubresources>(m_copyCommandList.Get(), rawTexture, intermediateBuffer.Get(), 0, 0, subresources.size(), subresources.data());
 
         // Allocate an SRV.
@@ -737,7 +778,9 @@ int Renderer::LoadTexture(ComPtr<ID3D12Resource>& textureOut, ComPtr<ID3D12Resou
 
 UINT64 Renderer::EndUploads()
 {
-    return m_copyCommandQueue->Execute(m_copyCommandList.Get());
+    UINT64 fenceValue = m_copyCommandQueue->Execute(m_copyCommandList.Get());
+    m_uploadManager->SetFenceValue(fenceValue);
+    return fenceValue;
 }
 
 void Renderer::WaitUploads(UINT64 fenceVal)

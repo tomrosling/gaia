@@ -16,7 +16,7 @@ bool Skybox::Init(Renderer& renderer)
         return false;
 
     renderer.BeginUploads();
-    m_cubemapSrvIndex = renderer.LoadTexture(m_cubemapTexResource, m_intermediateCubemapTexResource, L"skymap.dds", false);
+    m_cubemapSrvIndex = renderer.LoadTexture(m_cubemapTexResource, L"skymap.dds", false);
 
     using SkyboxVertex = Vec3f;
     const SkyboxVertex VertexData[] = {
@@ -39,37 +39,24 @@ bool Skybox::Init(Renderer& renderer)
         3, 2, 6,   6, 7, 3
     };
 
-    renderer.CreateBuffer(m_vertexBuffer, m_intermediateVertexBuffer, sizeof(VertexData), VertexData);
-    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    m_vertexBufferView.SizeInBytes = sizeof(VertexData);
-    m_vertexBufferView.StrideInBytes = sizeof(SkyboxVertex);
+    m_vertexBuffer = renderer.CreateVertexBuffer(Span<const uchar>((const uchar*)VertexData, sizeof(VertexData)), sizeof(SkyboxVertex));
+    m_indexBuffer = renderer.CreateIndexBuffer(Span<const uchar>((const uchar*)IndexData, sizeof(IndexData)), DXGI_FORMAT_R16_UINT);
 
-    renderer.CreateBuffer(m_indexBuffer, m_intermediateIndexBuffer, sizeof(IndexData), IndexData);
-    m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
-    m_indexBufferView.Format = DXGI_FORMAT_R16_UINT;
-    m_indexBufferView.SizeInBytes = sizeof(IndexData);
-
-    m_uploadFenceVal = renderer.EndUploads();
+    renderer.EndUploads();
 
     return true;
 }
 
 void Skybox::Render(Renderer& renderer)
 {
-    if (m_uploadFenceVal != 0)
-    {
-        renderer.WaitUploads(m_uploadFenceVal);
-        m_uploadFenceVal = 0;
-    }
-
     ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
     commandList.SetPipelineState(m_pipelineState.Get());
     renderer.BindDescriptor(m_cubemapSrvIndex, RootParam::Texture0);
 
     commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    commandList.IASetVertexBuffers(0, 1, &m_vertexBufferView);
-    commandList.IASetIndexBuffer(&m_indexBufferView);
-    commandList.DrawIndexedInstanced(m_indexBufferView.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
+    commandList.IASetVertexBuffers(0, 1, &m_vertexBuffer.view);
+    commandList.IASetIndexBuffer(&m_indexBuffer.view);
+    commandList.DrawIndexedInstanced(m_indexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
 }
 
 bool Skybox::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader)

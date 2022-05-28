@@ -125,7 +125,7 @@ static D3D12_TEXTURE_COPY_LOCATION MakeSrcTexCopyLocation(ID3D12Resource* interm
     src.PlacedFootprint.Footprint.Width = HeightmapDimension;
     src.PlacedFootprint.Footprint.Height = HeightmapDimension;
     src.PlacedFootprint.Footprint.Depth = 1;
-    src.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(HeightmapDimension, DirectX::BitsPerPixel(format) / 8);
+    src.PlacedFootprint.Footprint.RowPitch = GetTexturePitchBytes(HeightmapDimension, GetFormatSize(format));
     return src;
 }
 
@@ -176,10 +176,10 @@ bool Terrain::Init(Renderer& renderer)
 
     renderer.BeginUploads();
 
-    m_diffuseTexDescIndices[0] = renderer.LoadTexture(m_diffuseTextures[0], m_intermediateDiffuseTexBuffers[0], L"aerial_grass_rock_diff_4k.dds", true);
-    m_diffuseTexDescIndices[1] = renderer.LoadTexture(m_diffuseTextures[1], m_intermediateDiffuseTexBuffers[1], L"ground_grey_diff_4k.dds", true);
-    m_normalTexDescIndices[0] = renderer.LoadTexture(m_detailNormalMaps[0], m_intermediateNoramlMapBuffers[0], L"aerial_grass_rock_nor_dx_2k.dds", true);
-    m_normalTexDescIndices[1] = renderer.LoadTexture(m_detailNormalMaps[1], m_intermediateNoramlMapBuffers[1], L"ground_grey_nor_dx_2k.dds", true);
+    m_diffuseTexDescIndices[0] = renderer.LoadTexture(m_diffuseTextures[0], L"aerial_grass_rock_diff_4k.dds", true);
+    m_diffuseTexDescIndices[1] = renderer.LoadTexture(m_diffuseTextures[1], L"ground_grey_diff_4k.dds", true);
+    m_normalTexDescIndices[0] = renderer.LoadTexture(m_detailNormalMaps[0], L"aerial_grass_rock_nor_dx_2k.dds", true);
+    m_normalTexDescIndices[1] = renderer.LoadTexture(m_detailNormalMaps[1], L"ground_grey_nor_dx_2k.dds", true);
 
     // Create a set of clipmap textures.
     ID3D12Resource* heightMaps[NumClipLevels] = {};
@@ -209,7 +209,7 @@ bool Terrain::Init(Renderer& renderer)
     m_baseHeightMapTexIndex = renderer.AllocateTex2DSRVs((int)std::size(heightMaps), heightMaps, HeightmapTexFormat);
     m_baseNormalMapTexIndex = renderer.AllocateTex2DSRVs((int)std::size(normalMaps), normalMaps, NormalMapTexFormat);
 
-    m_uploadFenceVal = renderer.EndUploads();
+    renderer.EndUploads();
 
     return LoadCompiledShaders(renderer);
 }
@@ -231,7 +231,7 @@ void Terrain::Build(Renderer& renderer)
     BuildIndexBuffer(renderer);
     BuildWater(renderer);
 
-    m_uploadFenceVal = renderer.EndUploads();
+    renderer.EndUploads();
 
     // NOTE: Heightmap textures are uploaded using the compute queue, not the copy queue.
     // This is because we immediately want to compute normals after uploading.
@@ -257,13 +257,7 @@ void Terrain::Render(Renderer& renderer)
     // Update shader UV offset.
     m_mappedConstantBuffers[renderer.GetCurrentBuffer()]->clipmapUVOffset = Vec2f(m_clipmapTexelOffset) / (float)HeightmapDimension;
 
-    // Wait for any pending uploads.
-    if (m_uploadFenceVal != 0)
-    {
-        renderer.WaitUploads(m_uploadFenceVal);
-        m_uploadFenceVal = 0;
-    }
-
+    // Wait for any pending uploads/compute.
     if (m_computeFenceVal != 0)
     {
         renderer.WaitCompute(m_computeFenceVal);
@@ -620,7 +614,7 @@ Terrain::HeightmapData& Terrain::GetOrCreateTile(Vec2i tile, int level)
 void Terrain::RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy)
 {
     // Check buffers not already being uploaded.
-    Assert(m_uploadFenceVal == 0);
+    Assert(m_computeFenceVal == 0);
 
     // Find all tiles touched by this transform.
     // Account for tile borders.
@@ -957,14 +951,14 @@ void Terrain::CreateConstantBuffers(Renderer& renderer)
 void Terrain::BuildIndexBuffer(Renderer& renderer)
 {
     size_t dataSize = IndexBufferLength * sizeof(uint16);
-    m_indexBuffer.buffer = renderer.CreateResidentBuffer(dataSize);
-    m_indexBuffer.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
+    ID3D12Resource* uploadBuffer = nullptr;
+    m_indexBuffer.buffer = renderer.CreateBuffer(uploadBuffer, dataSize);
     m_indexBuffer.view.BufferLocation = m_indexBuffer.buffer->GetGPUVirtualAddress();
     m_indexBuffer.view.Format = DXGI_FORMAT_R16_UINT;
     m_indexBuffer.view.SizeInBytes = (UINT)dataSize;
 
     uint16* indexData = nullptr;
-    m_indexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&indexData);
+    uploadBuffer->Map(0, nullptr, (void**)&indexData);
     Assert(indexData);
 
     // Build quad patches.
@@ -980,24 +974,24 @@ void Terrain::BuildIndexBuffer(Renderer& renderer)
         }
     }
 
-    m_indexBuffer.intermediateBuffer->Unmap(0, nullptr);
+    uploadBuffer->Unmap(0, nullptr);
 
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    commandList.CopyBufferRegion(m_indexBuffer.buffer.Get(), 0, m_indexBuffer.intermediateBuffer.Get(), 0, dataSize);
+    commandList.CopyBufferRegion(m_indexBuffer.buffer.Get(), 0, uploadBuffer, 0, dataSize);
 }
 
 void Terrain::BuildVertexBuffer(Renderer& renderer)
 {
     size_t dataSize = VertexBufferLength * sizeof(TerrainVertex);
-    m_vertexBuffer.buffer = renderer.CreateResidentBuffer(dataSize);
-    m_vertexBuffer.intermediateBuffer = renderer.CreateUploadBuffer(dataSize);
+    ID3D12Resource* uploadBuffer = nullptr;
+    m_vertexBuffer.buffer = renderer.CreateBuffer(uploadBuffer, dataSize);
     m_vertexBuffer.view.BufferLocation = m_vertexBuffer.buffer->GetGPUVirtualAddress();
     m_vertexBuffer.view.SizeInBytes = (UINT)dataSize;
     m_vertexBuffer.view.StrideInBytes = sizeof(TerrainVertex);
 
     // Map buffer and fill in vertex data.
     TerrainVertex* vertexData = nullptr;
-    m_vertexBuffer.intermediateBuffer->Map(0, nullptr, (void**)&vertexData);
+    uploadBuffer->Map(0, nullptr, (void**)&vertexData);
     Assert(vertexData);
 
     for (int z = 0; z < VertexGridDimension; ++z)
@@ -1009,11 +1003,11 @@ void Terrain::BuildVertexBuffer(Renderer& renderer)
         }
     }
 
-    m_vertexBuffer.intermediateBuffer->Unmap(0, nullptr);
+    uploadBuffer->Unmap(0, nullptr);
 
     // Upload initial data to both buffers.
     ID3D12GraphicsCommandList& commandList = renderer.GetCopyCommandList();
-    commandList.CopyBufferRegion(m_vertexBuffer.buffer.Get(), 0, m_vertexBuffer.intermediateBuffer.Get(), 0, dataSize);
+    commandList.CopyBufferRegion(m_vertexBuffer.buffer.Get(), 0, uploadBuffer, 0, dataSize);
 }
 
 void Terrain::BuildWater(Renderer& renderer)
@@ -1032,12 +1026,12 @@ void Terrain::BuildWater(Renderer& renderer)
         0, 2, 3
     };
 
-    renderer.CreateBuffer(m_waterVertexBuffer.buffer, m_waterVertexBuffer.intermediateBuffer, sizeof(WaterVerts), WaterVerts);
+    m_waterVertexBuffer.buffer = renderer.CreateBuffer(sizeof(WaterVerts), WaterVerts);
     m_waterVertexBuffer.view.BufferLocation = m_waterVertexBuffer.buffer->GetGPUVirtualAddress();
     m_waterVertexBuffer.view.SizeInBytes = sizeof(WaterVerts);
     m_waterVertexBuffer.view.StrideInBytes = sizeof(WaterVertex);
 
-    renderer.CreateBuffer(m_waterIndexBuffer.buffer, m_waterIndexBuffer.intermediateBuffer, sizeof(WaterIndices), WaterIndices);
+    m_waterIndexBuffer.buffer = renderer.CreateBuffer(sizeof(WaterIndices), WaterIndices);
     m_waterIndexBuffer.view.BufferLocation = m_waterIndexBuffer.buffer->GetGPUVirtualAddress();
     m_waterIndexBuffer.view.Format = DXGI_FORMAT_R16_UINT;
     m_waterIndexBuffer.view.SizeInBytes = sizeof(WaterIndices);

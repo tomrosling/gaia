@@ -38,20 +38,6 @@ private:
         ComPtr<ID3D12Resource> intermediateBuffer; // TODO: Optimise this. We don't need a separate intermediate buffer per layer.
     };
 
-    struct VertexBuffer
-    {
-        ComPtr<ID3D12Resource> buffer;
-        ComPtr<ID3D12Resource> intermediateBuffer;
-        D3D12_VERTEX_BUFFER_VIEW view = {};
-    };
-
-    struct IndexBuffer
-    {
-        ComPtr<ID3D12Resource> buffer;
-        ComPtr<ID3D12Resource> intermediateBuffer;
-        D3D12_INDEX_BUFFER_VIEW view = {};
-    };
-
     struct TerrainPSConstantBuffer
     {
         Vec2f highlightPosXZ;
@@ -92,7 +78,6 @@ private:
     ClipmapLevel m_clipmapLevels[NumClipLevels];
     VertexBuffer m_vertexBuffer;
     IndexBuffer m_indexBuffer;
-    uint64 m_uploadFenceVal = 0;
     uint64 m_computeFenceVal = 0;
     Vec2i m_clipmapTexelOffset = Vec2iZero;
     Vec2i m_globalDirtyRegionMin = Vec2iZero;
