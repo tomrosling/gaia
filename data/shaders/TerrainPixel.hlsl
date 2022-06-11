@@ -16,8 +16,8 @@ Texture2D DiffuseTex1 : register(t1);
 Texture2D NormalTex0 : register(t2);
 Texture2D NormalTex1 : register(t3);
 Texture2D SunShadowMap : register(t4);
-SamplerState StaticSampler : register(s0);
-
+SamplerState BasicSampler : register(s0);
+SamplerComparisonState ShadowSampler : register(s1);
 
 struct DomainShaderOutput
 {
@@ -45,38 +45,31 @@ float4 main(DomainShaderOutput IN) : SV_Target
     float3x3 tbn = float3x3(tangent, bitangent, vertexNormal);
     
     // Sample normal maps.
-    float3 grassNrm = NormalTex0.Sample(StaticSampler, uv).xyz;
-    float3 rocksNrm = NormalTex1.Sample(StaticSampler, uv).xyz;
+    float3 grassNrm = NormalTex0.Sample(BasicSampler, uv).xyz;
+    float3 rocksNrm = NormalTex1.Sample(BasicSampler, uv).xyz;
     float3 detailNrm = lerp(grassNrm, rocksNrm, texBlend);
     detailNrm = 2.0 * detailNrm - 1.0;
     float3 nrm = mul(detailNrm, tbn);
     
     // Calculate ambient and diffuse lighting.
     float ndotl = max(-dot(nrm, SunDirection), 0.0);
-    float3 grassAlbedo = DiffuseTex0.Sample(StaticSampler, uv).rgb;
-    float3 rocksAlbedo = DiffuseTex1.Sample(StaticSampler, uv).rgb;
+    float3 grassAlbedo = DiffuseTex0.Sample(BasicSampler, uv).rgb;
+    float3 rocksAlbedo = DiffuseTex1.Sample(BasicSampler, uv).rgb;
     float3 albedo = lerp(grassAlbedo, rocksAlbedo, texBlend);
-    float3 ambient = 0.15 * albedo;
+    float3 ambient = 0.1 * albedo;
     float3 diffuse = 0.85 * ndotl * albedo;
-
-    // Sample shadow map to occlude diffuse light.
-    float shadowFactor = 1.0;
 
     // Transform shadow pos from clip space [-1, 1] to texture space [0, 1] (depth is already [0, 1])
     float3 lightSpaceCoords = (IN.shadowPos.xyz / IN.shadowPos.w);
     lightSpaceCoords.x =  lightSpaceCoords.x * 0.5 + 0.5;
     lightSpaceCoords.y = -lightSpaceCoords.y * 0.5 + 0.5;
     
-    if (all(saturate(lightSpaceCoords) == lightSpaceCoords)) // TODO: Use border colour on sampler and remove this?
-    {
-        // TODO: Use a comparison sampler and SampleCmp instead
-        float shadowmapDepth = SunShadowMap.Sample(StaticSampler, lightSpaceCoords.xy).r;
-        float pixelShadowDepth = min(lightSpaceCoords.z, 1.0); // Clamp depth to the range of the shadowmap
-        float bias = 0.001;
-        shadowFactor = pixelShadowDepth < shadowmapDepth + bias ? 1.0 : 0.0;
-        diffuse *= shadowFactor;
-    }
-
+    // Sample shadow map to occlude diffuse light.
+    float pixelShadowDepth = min(lightSpaceCoords.z, 1.0); // Clamp depth to the range of the shadowmap
+    float bias = 0.005;
+    float shadowFactor = SunShadowMap.SampleCmp(ShadowSampler, lightSpaceCoords.xy, pixelShadowDepth - bias).r;        
+    diffuse *= shadowFactor;
+    
     // Selection highlight
     float2 highlightOffset = IN.worldPos.xz - HighlightPosXZ;
     float highlightDistSq = dot(highlightOffset, highlightOffset);

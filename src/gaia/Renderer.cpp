@@ -46,6 +46,16 @@ struct PSSharedConstants
     float pad2;
 };
 
+namespace StaticSampler
+{
+enum E
+{
+    Basic,
+    Shadowmap,
+    Count
+};
+}
+
 Renderer::Renderer()
 {
 }
@@ -328,7 +338,7 @@ bool Renderer::CreateRootSignature()
     D3D12_DESCRIPTOR_RANGE1 srvDescRange2 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange3 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
     D3D12_DESCRIPTOR_RANGE1 sunShadowMapDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4);
-    D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 1);
+    D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, StaticSampler::Count);
 
     CD3DX12_ROOT_PARAMETER1 rootParams[RootParam::Count];
     rootParams[RootParam::VSSharedConstants].InitAsConstantBufferView(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE, D3D12_SHADER_VISIBILITY_ALL); // TODO: Rename!
@@ -344,26 +354,19 @@ bool Renderer::CreateRootSignature()
     rootParams[RootParam::Sampler0].InitAsDescriptorTable(1, &samplerSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
 
     // Static sampler for textures.
-    D3D12_STATIC_SAMPLER_DESC samplerDesc = {};
-    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.MipLODBias = 0;
-    samplerDesc.MaxAnisotropy = 0;
-    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-    samplerDesc.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-    samplerDesc.MinLOD = 0.0f;
-    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
-    samplerDesc.ShaderRegister = 0;
-    samplerDesc.RegisterSpace = 0;
-    samplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    CD3DX12_STATIC_SAMPLER_DESC staticSamplers[StaticSampler::Count];
+    staticSamplers[StaticSampler::Basic].Init(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR);
+    staticSamplers[StaticSampler::Basic].MaxAnisotropy = 0;
+    staticSamplers[StaticSampler::Shadowmap].Init(1, D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR);
+    staticSamplers[StaticSampler::Shadowmap].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[StaticSampler::Shadowmap].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[StaticSampler::Shadowmap].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
-    rootSignatureDesc.Init_1_1((UINT)std::size(rootParams), rootParams, 1, &samplerDesc, rootSignatureFlags);
+    rootSignatureDesc.Init_1_1(RootParam::Count, rootParams, StaticSampler::Count, staticSamplers, rootSignatureFlags);
 
     ComPtr<ID3DBlob> rootSigBlob;
     ComPtr<ID3DBlob> errBlob;

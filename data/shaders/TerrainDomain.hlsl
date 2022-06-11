@@ -33,7 +33,7 @@ static const float InvTextureRes = 1.0 / (float)HeightmapSize;
 static const float HalfTexel = 0.5 * InvTextureRes;
 Texture2D HeightmapTex[NumClipLevels] : register(t0);
 Texture2D NormalMapTex[NumClipLevels] : register(t8);
-SamplerState HeightmapSampler : register(s1); 
+SamplerState HeightmapSampler : register(s2); 
 
 struct DomainShaderOutput
 {
