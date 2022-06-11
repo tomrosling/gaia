@@ -39,9 +39,9 @@ HullShaderConstantOutput CalcHSPatchConstants(InPatch ip, uint PatchID : SV_Prim
     // Get the midpoint of each edge to find the tesselation factor for that edge.
     // Could also improve this by sampling the heightmap here too to get a better idea of screen coverage.
     float2 edge0 = (ip[0].pos + ip[2].pos) * 0.5;
-    float2 edge1 = lerp(ip[0].pos, ip[1].pos, 0.5); // For some reason if I leave this is 0.5 * (a + b), it ends up at the centre of the patch. Wat. Compiler/driver bug?
-    float2 edge2 = (ip[1].pos + ip[3].pos) * 0.5;   // So, I guess, TODO... Check the bytecode. :(
-    float2 edge3 = (ip[2].pos + ip[3].pos) * 0.5;   // Wait.. are the symlinks fucking with the compiler?
+    float2 edge1 = lerp(ip[0].pos, ip[1].pos, 0.5); // For some reason if this is 0.5 * (a + b), it ends up at the centre of the patch. Compiler bug?
+    float2 edge2 = (ip[1].pos + ip[3].pos) * 0.5;
+    float2 edge3 = (ip[2].pos + ip[3].pos) * 0.5;
     float2 centre = (ip[0].pos + ip[1].pos + ip[2].pos + ip[3].pos) * 0.25;
 
     output.EdgeTessFactor[0] = CalcTessFactor(edge0);

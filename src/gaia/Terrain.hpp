@@ -16,7 +16,9 @@ public:
 
     bool Init(Renderer& renderer);
     void Build(Renderer& renderer);
+    void PreRender(Renderer& renderer);
     void Render(Renderer& renderer);
+    void RenderShadowPass(Renderer& renderer);
     void RaiseAreaRounded(Renderer& renderer, Vec2f posXZ, float radius, float raiseBy);
 
     bool LoadCompiledShaders(Renderer& renderer);
@@ -52,6 +54,7 @@ private:
     };
 
     bool CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* hullShader, ID3DBlob* domainShader, ID3DBlob* pixelShader);
+    bool CreateShadowPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* hullShader, ID3DBlob* domainShader);
     bool CreateWaterPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* pixelShader);
     void CreateConstantBuffers(Renderer& renderer);
     void BuildIndexBuffer(Renderer& renderer);
@@ -69,6 +72,7 @@ private:
 
     // Rendering objects.
     ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12PipelineState> m_shadowPipelineState;
     std::unique_ptr<TerrainComputeNormals> m_computeNormals;
 
     // Heightmap data, lazily populated as tiles are edited (otherwise data is just created from noise on demand).

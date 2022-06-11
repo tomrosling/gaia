@@ -1,8 +1,12 @@
+// Defined when building shaders for shadowmap pass
+//#define SHADOW_PASS
+
 cbuffer VSSharedConstants : register(b0)
 {
     matrix viewMat;
     matrix projMat;
     matrix mvpMat;
+    matrix sunShadowMvpMat;
 };
 
 cbuffer TerrainPSConstantBuffer : register(b2)
@@ -33,9 +37,12 @@ SamplerState HeightmapSampler : register(s1);
 
 struct DomainShaderOutput
 {
+#ifndef SHADOW_PASS
     float3 worldPos : POSITION;
     float3 nrm : NORMAL;
     float3 tangent : TANGENT;
+    float4 shadowPos : SHADOWPOS;
+#endif
     float4 pos : SV_POSITION;
 };
 
@@ -103,13 +110,19 @@ DomainShaderOutput main(HullShaderConstantOutput input, float2 domain : SV_Domai
 
     // Lookup height and normal.
     float height = SampleBlended(HeightmapTex, uv, clipLevel, logMaxCoord).r;
-    OUT.worldPos = float3(pos2D.x, height, pos2D.y);
-    OUT.pos = mul(projMat, mul(viewMat, float4(OUT.worldPos, 1.0)));
+    float3 worldPos = float3(pos2D.x, height, pos2D.y);
+    OUT.pos = mul(projMat, mul(viewMat, float4(worldPos, 1.0)));
+
+#ifndef SHADOW_PASS
+    OUT.worldPos = worldPos;
     OUT.nrm = SampleBlended(NormalMapTex, uv, clipLevel, logMaxCoord).rgb;
 
     // Calculate tangent, always in XY plane (assuming normal has nonzero Y component).
     // Approximately, T = X, B = Z, N = Y
     OUT.tangent = cross(OUT.nrm, float3(0.0, 0.0, 1.0));
+
+    OUT.shadowPos = mul(sunShadowMvpMat, float4(worldPos, 1.0));
+#endif
 
     return OUT;
 }

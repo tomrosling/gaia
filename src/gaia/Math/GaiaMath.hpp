@@ -1,5 +1,6 @@
 #pragma once
 #define GLM_FORCE_EXPLICIT_CTOR
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/norm.hpp>
@@ -149,6 +150,16 @@ inline Mat4f Mat4fCompose(const Mat3f& m3, const Vec3f& translation)
 inline Mat4f Mat4fMakeTranslation(const Vec3f& translation)
 {
     return Mat4fCompose(Mat3fIdentity, translation);
+}
+
+inline Vec3f& Mat4fGetTranslation(Mat4f& mat)
+{
+    return (Vec3f&)mat[3];
+}
+
+inline const Vec3f& Mat4fGetTranslation(const Mat4f& mat)
+{
+    return (const Vec3f&)mat[3];
 }
 
 inline Mat3f Mat3fMakeRotationX(float rx)

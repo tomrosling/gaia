@@ -22,6 +22,9 @@ struct WaterVertex
     Vec4u8 colour;
 };
 
+static constexpr D3D12_INPUT_ELEMENT_DESC TerrainInputLayout[] = {
+    { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+};
 
 // Returns index of a heightmap sample within a tile.
 static int TileIndex(int x, int z)
@@ -247,7 +250,7 @@ void Terrain::Build(Renderer& renderer)
     m_computeFenceVal = renderer.EndCompute();
 }
 
-void Terrain::Render(Renderer& renderer)
+void Terrain::PreRender(Renderer& renderer)
 {
     if (!m_freezeClipmap)
     {
@@ -256,15 +259,6 @@ void Terrain::Render(Renderer& renderer)
 
     // Update shader UV offset.
     m_mappedConstantBuffers[renderer.GetCurrentBuffer()]->clipmapUVOffset = Vec2f(m_clipmapTexelOffset) / (float)HeightmapDimension;
-
-    // Wait for any pending uploads/compute.
-    if (m_computeFenceVal != 0)
-    {
-        renderer.WaitCompute(m_computeFenceVal);
-        m_computeFenceVal = 0;
-    }
-
-    ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
 
     if (m_detailTexStateDirty)
     {
@@ -275,10 +269,22 @@ void Terrain::Render(Renderer& renderer)
             barriers[2 * i + 0] = CD3DX12_RESOURCE_BARRIER::Transition(m_diffuseTextures[i].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             barriers[2 * i + 1] = CD3DX12_RESOURCE_BARRIER::Transition(m_detailNormalMaps[i].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         }
-        commandList.ResourceBarrier((int)std::size(barriers), barriers);
+        renderer.GetDirectCommandList().ResourceBarrier((int)std::size(barriers), barriers);
 
         m_detailTexStateDirty = false;
     }
+
+    // Wait for any pending uploads/compute.
+    if (m_computeFenceVal != 0)
+    {
+        renderer.WaitCompute(m_computeFenceVal);
+        m_computeFenceVal = 0;
+    }
+}
+
+void Terrain::Render(Renderer& renderer)
+{
+    ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
 
     // Set PSO/shader state
     commandList.SetPipelineState(m_pipelineState.Get());
@@ -303,6 +309,23 @@ void Terrain::Render(Renderer& renderer)
     commandList.IASetVertexBuffers(0, 1, &m_waterVertexBuffer.view);
     commandList.IASetIndexBuffer(&m_waterIndexBuffer.view);
     commandList.DrawIndexedInstanced(m_waterIndexBuffer.view.SizeInBytes / sizeof(uint16), 1, 0, 0, 0);
+}
+
+void Terrain::RenderShadowPass(Renderer& renderer)
+{
+    ID3D12GraphicsCommandList& commandList = renderer.GetDirectCommandList();
+
+    // Set PSO/shader state
+    commandList.SetPipelineState(m_shadowPipelineState.Get());
+    renderer.BindDescriptor(m_cbufferDescIndex, RootParam::PSConstantBuffer);
+    renderer.BindDescriptor(m_baseHeightMapTexIndex, RootParam::VertexTexture0);
+    renderer.BindSampler(m_heightmapSamplerDescIndex);
+
+    // Render the terrain.
+    commandList.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
+    commandList.IASetVertexBuffers(0, 1, &m_vertexBuffer.view);
+    commandList.IASetIndexBuffer(&m_indexBuffer.view);
+    commandList.DrawIndexedInstanced(IndexBufferLength, 1, 0, 0, 0);
 }
 
 void Terrain::UpdateClipmapTextures(Renderer& renderer)
@@ -693,12 +716,15 @@ bool Terrain::LoadCompiledShaders(Renderer& renderer)
     ComPtr<ID3DBlob> hullShader = renderer.LoadCompiledShader(L"TerrainHull.cso");
     ComPtr<ID3DBlob> domainShader = renderer.LoadCompiledShader(L"TerrainDomain.cso");
     ComPtr<ID3DBlob> pixelShader = renderer.LoadCompiledShader(L"TerrainPixel.cso");
-    if (!(vertexShader && hullShader && domainShader && pixelShader))
+    ComPtr<ID3DBlob> shadowDomainShader = renderer.LoadCompiledShader(L"TerrainShadowDomain.cso");
+    if (!(vertexShader && hullShader && domainShader && pixelShader && shadowDomainShader))
         return false;
 
     if (!CreatePipelineState(renderer, vertexShader.Get(), hullShader.Get(), domainShader.Get(), pixelShader.Get()))
         return false;
 
+    if (!CreateShadowPipelineState(renderer, vertexShader.Get(), hullShader.Get(), shadowDomainShader.Get()))
+        return false;
     
     // Load water shaders
     ComPtr<ID3DBlob> waterVertexShader = renderer.LoadCompiledShader(L"WaterVertex.cso");
@@ -716,6 +742,13 @@ bool Terrain::HotloadShaders(Renderer& renderer)
     ComPtr<ID3DBlob> hullShader = renderer.CompileShader(L"TerrainHull.hlsl", ShaderStage::Hull);
     ComPtr<ID3DBlob> domainShader = renderer.CompileShader(L"TerrainDomain.hlsl", ShaderStage::Domain);
     ComPtr<ID3DBlob> pixelShader = renderer.CompileShader(L"TerrainPixel.hlsl", ShaderStage::Pixel);
+
+    // TODO: Fix include handler so we can hotload shadow pass shader too
+
+    //ComPtr<ID3DBlob> shadowDomainShader = renderer.CompileShader(L"TerrainShadowDomain.hlsl", ShaderStage::Domain);
+    //if (!(vertexShader && hullShader && domainShader && pixelShader && shadowDomainShader))
+    //    return false;
+
     if (!(vertexShader && hullShader && domainShader && pixelShader))
         return false;
 
@@ -725,13 +758,19 @@ bool Terrain::HotloadShaders(Renderer& renderer)
     if (!CreatePipelineState(renderer, vertexShader.Get(), hullShader.Get(), domainShader.Get(), pixelShader.Get()))
         return false;
 
+    //if (!CreateShadowPipelineState(renderer, vertexShader.Get(), hullShader.Get(), shadowDomainShader.Get()))
+    //    return false;
+
     ComPtr<ID3DBlob> waterVertexShader = renderer.CompileShader(L"WaterVertex.hlsl", ShaderStage::Vertex);
     ComPtr<ID3DBlob> waterPixelShader = renderer.CompileShader(L"WaterPixel.hlsl", ShaderStage::Pixel);
     if (!(waterVertexShader && waterPixelShader))
         return false;
 
+    if (!CreateWaterPipelineState(renderer, waterVertexShader.Get(), waterPixelShader.Get()))
+        return false;
 
-    return CreateWaterPipelineState(renderer, waterVertexShader.Get(), waterPixelShader.Get());
+    DebugOut("Terrain::HotloadShaders() succeeded!\n");
+    return true;
 }
 
 void Terrain::Imgui(Renderer& renderer)
@@ -820,13 +859,7 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
         CD3DX12_PIPELINE_STATE_STREAM_PS ps;
         CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
         CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
-        CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend;
         CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER rasterizer;
-    };
-
-    // Define vertex layout
-    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
     D3D12_RT_FORMAT_ARRAY rtvFormats = {};
@@ -835,7 +868,7 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
 
     PipelineStateStream pipelineStateStream;
     pipelineStateStream.rootSignature = &renderer.GetRootSignature();
-    pipelineStateStream.inputLayout = { inputLayout, (UINT)std::size(inputLayout) };
+    pipelineStateStream.inputLayout = { TerrainInputLayout, (UINT)std::size(TerrainInputLayout) };
     pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader);
     pipelineStateStream.hs = CD3DX12_SHADER_BYTECODE(hullShader);
@@ -854,11 +887,48 @@ bool Terrain::CreatePipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID
     ComPtr<ID3D12PipelineState> pso;
     if (FAILED(renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&pso))))
     {
-        DebugOut("Failed to create pipeline state object!\n");
+        DebugOut("Failed to create terrain pipeline state object!\n");
         return false;
     }
 
     m_pipelineState = pso;
+    return true;
+}
+
+bool Terrain::CreateShadowPipelineState(Renderer& renderer, ID3DBlob* vertexShader, ID3DBlob* hullShader, ID3DBlob* domainShader)
+{
+    // Create PSO
+    struct PipelineStateStream
+    {
+        CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE rootSignature;
+        CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT inputLayout;
+        CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY primType;
+        CD3DX12_PIPELINE_STATE_STREAM_VS vs;
+        CD3DX12_PIPELINE_STATE_STREAM_HS hs;
+        CD3DX12_PIPELINE_STATE_STREAM_DS ds;
+        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT dsvFormat;
+        CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER rasterizer;
+    };
+
+    PipelineStateStream pipelineStateStream;
+    pipelineStateStream.rootSignature = &renderer.GetRootSignature();
+    pipelineStateStream.inputLayout = { TerrainInputLayout, (UINT)std::size(TerrainInputLayout) };
+    pipelineStateStream.primType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    pipelineStateStream.vs = CD3DX12_SHADER_BYTECODE(vertexShader);
+    pipelineStateStream.hs = CD3DX12_SHADER_BYTECODE(hullShader);
+    pipelineStateStream.ds = CD3DX12_SHADER_BYTECODE(domainShader);
+    pipelineStateStream.dsvFormat = DXGI_FORMAT_D32_FLOAT;
+    ((CD3DX12_RASTERIZER_DESC&)pipelineStateStream.rasterizer).FrontCounterClockwise = true;
+
+    D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = { sizeof(PipelineStateStream), &pipelineStateStream };
+    ComPtr<ID3D12PipelineState> pso;
+    if (FAILED(renderer.GetDevice().CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&pso))))
+    {
+        DebugOut("Failed to create terrain pipeline state object!\n");
+        return false;
+    }
+
+    m_shadowPipelineState = pso;
     return true;
 }
 

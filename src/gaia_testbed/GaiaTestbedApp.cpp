@@ -291,9 +291,20 @@ void GaiaTestbedApp::Update(float dt)
 void GaiaTestbedApp::Render()
 {
     m_renderer.BeginFrame();
+    m_terrain.PreRender(m_renderer);
+
+    // Shadow pass
+    m_renderer.BeginShadowPass();
+    m_terrain.RenderShadowPass(m_renderer);
+    m_renderer.EndShadowPass();
+
+    // "Geometry" pass (currently including anything renderering the to the main render target, excluding the renderer's own imgui)
+    m_renderer.BeginGeometryPass();
     m_terrain.Render(m_renderer);
     m_skybox.Render(m_renderer);
     DebugDraw::Instance().Render(m_renderer);
+    m_renderer.EndGeometryPass();
+
     m_renderer.EndFrame();
 }
 

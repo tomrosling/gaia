@@ -1,5 +1,6 @@
 #include "DebugDraw.hpp"
 #include "Renderer.hpp"
+#include "Math/AABB.hpp"
 
 namespace gaia
 {
@@ -97,7 +98,7 @@ void DebugDraw::Render(Renderer& renderer)
     m_usedVertices = 0;
 }
 
-void DebugDraw::Point(Vec3f pos, float halfSize, Vec4u8 col)
+void DebugDraw::DrawPoint(Vec3f pos, float halfSize, Vec4u8 col)
 {
     Vec3f points[] = {
         pos + Vec3f(-halfSize, 0.f, 0.f),
@@ -108,10 +109,10 @@ void DebugDraw::Point(Vec3f pos, float halfSize, Vec4u8 col)
         pos + Vec3f(0.f, 0.f,  halfSize),
     };
     
-    Lines((int)std::size(points), points, col);
+    DrawLines((int)std::size(points), points, col);
 }
 
-void DebugDraw::Lines(int numPoints, const Vec3f* points, Vec4u8 col)
+void DebugDraw::DrawLines(int numPoints, const Vec3f* points, Vec4u8 col)
 {
     Assert(numPoints > 1);
     Assert(numPoints % 2 == 0);
@@ -126,6 +127,52 @@ void DebugDraw::Lines(int numPoints, const Vec3f* points, Vec4u8 col)
         v0.colour = col;
     }
     m_usedVertices = vertex;
+}
+
+void DebugDraw::DrawTransform(const Mat4f& xform, float size)
+{
+    Vec3f centre(xform[3]);
+    Vec3f right = math::Mat4fTransformVec3f(xform, Vec3fX * size);
+    Vec3f up = math::Mat4fTransformVec3f(xform, Vec3fY * size);
+    Vec3f back = math::Mat4fTransformVec3f(xform, Vec3fZ * size);
+
+    Vec3f points[] = {
+        centre, right,
+        centre, up,
+        centre, back
+    };
+
+    DrawLines(2, points + 0, Vec4u8(0xff, 0x00, 0x00, 0xff));
+    DrawLines(2, points + 2, Vec4u8(0x00, 0xff, 0x00, 0xff));
+    DrawLines(2, points + 4, Vec4u8(0x00, 0x00, 0xff, 0xff));
+}
+
+void DebugDraw::DrawAABB3f(const AABB3f& aabb, Vec4u8 col, const Mat4f& xform)
+{
+    Vec3f a = aabb.m_min;
+    Vec3f b(aabb.m_max.x, aabb.m_min.y, aabb.m_min.z);
+    Vec3f c(aabb.m_min.x, aabb.m_max.y, aabb.m_min.z);
+    Vec3f d(aabb.m_max.x, aabb.m_max.y, aabb.m_min.z);
+    Vec3f e(aabb.m_min.x, aabb.m_min.y, aabb.m_max.z);
+    Vec3f f(aabb.m_max.x, aabb.m_min.y, aabb.m_max.z);
+    Vec3f g(aabb.m_min.x, aabb.m_max.y, aabb.m_max.z);
+    Vec3f h = aabb.m_max;
+
+    Vec3f points[] = {
+        a, b, a, c, b, d, c, d,
+        e, f, e, g, f, h, g, h,
+        a, e, b, f, c, g, d, h
+    };
+
+    if (xform != Mat4fIdentity)
+    {
+        for (Vec3f& p : points)
+        {
+            p = math::Mat4fTransformVec3f(xform, p);
+        }
+    }
+
+    DrawLines((int)std::size(points), points, col);
 }
 
 }
