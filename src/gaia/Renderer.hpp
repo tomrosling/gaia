@@ -1,5 +1,6 @@
 #pragma once
 #include "MappedConstantBuffer.hpp"
+#include "Math/AABB.hpp"
 
 interface IDXGIFactory4;
 interface IDXGIAdapter1;
@@ -154,6 +155,7 @@ private:
     D3D12_CPU_DESCRIPTOR_HANDLE GetMainDSV();
     D3D12_CPU_DESCRIPTOR_HANDLE GetSunShadowDSV();
     Pair<Mat4f, Mat4f> GetSunShadowMatrices() const;
+    AABB3f GetShadowBounds() const;
 
     ComPtr<IDXGIFactory4> m_factory;
     ComPtr<IDXGIAdapter1> m_adapter;

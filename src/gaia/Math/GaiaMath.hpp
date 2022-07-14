@@ -28,8 +28,17 @@ using Vec2u8 = glm::u8vec2;
 using Vec3u8 = glm::u8vec3;
 using Vec4u8 = glm::u8vec4;
 
+using Vec2b = glm::bvec2;
+using Vec3b = glm::bvec3;
+using Vec4b = glm::bvec4;
+
+template<typename T> using Vec2 = glm::vec<2, T>;
+template<typename T> using Vec3 = glm::vec<3, T>;
+template<typename T> using Vec4 = glm::vec<4, T>;
+
 // Constants:
 static constexpr float Pif = glm::pi<float>();
+static constexpr float Epsilonf = 1e-5f;
 
 static constexpr Vec2f Vec2fZero(0.f, 0.f);
 static constexpr Vec2f Vec2fX(1.f, 0.f);
@@ -68,7 +77,12 @@ namespace math
 // Pull in global functions (dot, cross, etc).
 using namespace glm;
 
-// Define some of our own:
+
+//
+// Define some of our own.
+// Scalar functions:
+//
+
 template<typename T>
 constexpr inline T Square(T x)
 {
@@ -103,6 +117,11 @@ constexpr inline T RoundDownPow2(T n, T align)
     return n & ~(align - 1);
 }
 
+inline bool ApproxEqual(float a, float b, float epsilon)
+{
+    return fabsf(a - b) <= epsilon;
+}
+
 inline int IFloorF(float x)
 {
     return (int)floorf(x);
@@ -129,9 +148,67 @@ constexpr inline int ILog2(int32 n)
 #undef S
 }
 
+
+//
+// Vector functions:
+//
+
+template <typename T>
+inline Vec2<T> Vec2Select(const Vec2<T>& a, const Vec2<T>& b, Vec2b mask)
+{
+    return Vec2<T>(mask.x ? a.x : b.x, mask.y ? a.y : b.y);
+}
+
+template <typename T>
+inline Vec3<T> Vec3Select(const Vec3<T>& a, const Vec3<T>& b, Vec3b mask)
+{
+    return Vec3<T>(mask.x ? a.x : b.x, mask.y ? a.y : b.y, mask.z ? a.z : b.z);
+}
+
+template <typename T>
+inline Vec4<T> Vec4Select(const Vec4<T>& a, const Vec4<T>& b, Vec4b mask)
+{
+    return Vec4<T>(mask.x ? a.x : b.x, mask.y ? a.y : b.y, mask.z ? a.z : b.z, mask.w ? a.w : b.w);
+}
+
 inline Vec2i Vec2Floor(Vec2f v)
 {
     return Vec2i(IFloorF(v.x), IFloorF(v.y));
+}
+
+inline bool Vec3fApproxEqual(const Vec3f& a, const Vec3f& b, float epsilon)
+{
+    return ApproxEqual(a.x, b.x, epsilon) && ApproxEqual(a.y, b.y, epsilon) && ApproxEqual(a.z, b.z, epsilon);
+}
+
+
+//
+// Matrix functions:
+//
+
+inline Mat3f Mat3fMakeRotationX(float rx)
+{
+    // TODO: inline and optimise.
+    return Mat3f(glm::rotate(Mat4fIdentity, rx, Vec3fX));
+}
+
+inline Mat3f Mat3fMakeRotationY(float ry)
+{
+    // TODO: inline and optimise.
+    return Mat3f(glm::rotate(Mat4fIdentity, ry, Vec3fY));
+}
+
+inline Mat3f Mat3fMakeRotationZ(float rz)
+{
+    // TODO: inline and optimise.
+    return Mat3f(glm::rotate(Mat4fIdentity, rz, Vec3fZ));
+}
+
+inline bool Mat3fApproxEqual(const Mat3f& a, const Mat3f& b, float epsilon)
+{
+    return Vec3fApproxEqual(a[0], b[0], epsilon)
+        && Vec3fApproxEqual(a[1], b[1], epsilon)
+        && Vec3fApproxEqual(a[2], b[2], epsilon);
 }
 
 inline Vec3f Mat4fTransformVec3f(const Mat4f& m, const Vec3f& v)
@@ -162,22 +239,16 @@ inline const Vec3f& Mat4fGetTranslation(const Mat4f& mat)
     return (const Vec3f&)mat[3];
 }
 
-inline Mat3f Mat3fMakeRotationX(float rx)
+inline void AssertMat4fIsAffine(const Mat4f& mat)
 {
-    // TODO: inline and optimise.
-    return Mat3f(glm::rotate(Mat4fIdentity, rx, Vec3fX));
-}
-
-inline Mat3f Mat3fMakeRotationY(float ry)
-{
-    // TODO: inline and optimise.
-    return Mat3f(glm::rotate(Mat4fIdentity, ry, Vec3fY));
-}
-
-inline Mat3f Mat3fMakeRotationZ(float rz)
-{
-    // TODO: inline and optimise.
-    return Mat3f(glm::rotate(Mat4fIdentity, rz, Vec3fZ));
+    // TODO: Check this works in all cases, but it's good enough for asserts for now.
+    // See https://math.stackexchange.com/a/1053119
+    Mat3f mat3(mat);
+    Assert(Mat3fApproxEqual(glm::transpose(mat3) * mat3, Mat3fIdentity, Epsilonf));
+    Assert(ApproxEqual(mat[0][3], 0.f, Epsilonf));
+    Assert(ApproxEqual(mat[1][3], 0.f, Epsilonf));
+    Assert(ApproxEqual(mat[2][3], 0.f, Epsilonf));
+    Assert(glm::determinant(mat) > 0.f);
 }
 
 } // namespace math

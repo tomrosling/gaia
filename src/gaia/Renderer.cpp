@@ -6,6 +6,7 @@
 #include <examples/imgui_impl_dx12.h>
 #include "Math/GaiaMath.hpp"
 #include "Math/AABB.hpp"
+#include "Math/Plane.hpp"
 #include "CommandQueue.hpp"
 #include "GenerateMips.hpp"
 #include "UploadManager.hpp"
@@ -20,7 +21,7 @@ static constexpr int NumCBVDescriptors = 32;
 static constexpr int NumComputeDescriptors = 64;
 static constexpr int NumSamplers = 1;
 
-static constexpr int SunShadowmapSize = 1024;
+static constexpr int SunShadowmapSize = 4096;
 
 static int CountMips(int width, int height)
 {
@@ -55,6 +56,21 @@ enum E
     Count
 };
 }
+
+
+// Debug state.
+// TODO: Move this to its own file and improve interface.
+struct RendererDebugState
+{
+    bool m_freezeCascades = false;
+    bool m_drawShadowBounds = false;
+    AABB3f m_frozenShadowBounds = AABB3fInvalid;
+};
+
+static RendererDebugState s_debugState;
+
+
+
 
 Renderer::Renderer()
 {
@@ -1072,6 +1088,15 @@ void Renderer::Imgui()
             m_sunDirection = Vec3f(sinf(sunAltitude) * sinf(sunAzimuth), cosf(sunAltitude), sinf(sunAltitude) * cosf(sunAzimuth));
         }
 
+        if (ImGui::CollapsingHeader("Sun Shadows"))
+        {
+            ImGui::Checkbox("Draw Bounds", &s_debugState.m_drawShadowBounds);
+            if (ImGui::Checkbox("Freeze Cascades", &s_debugState.m_freezeCascades))
+            {
+                s_debugState.m_frozenShadowBounds = AABB3fInvalid;
+            }
+        }
+
         if (ImGui::CollapsingHeader("Stats (Direct Command List Only)"))
         {
             // Read stats out of the previous frame's buffer.
@@ -1109,28 +1134,114 @@ D3D12_CPU_DESCRIPTOR_HANDLE Renderer::GetSunShadowDSV()
     return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart(), 1, m_dsvDescriptorSize);
 }
 
-// TODO: less hardcoded!
-static AABB3f GetShadowBounds()
-{
-    constexpr float ShadowHalfSize = 3.f * 256.f * 0.5f; 
-    return { Vec3f(-ShadowHalfSize, -20.f, -ShadowHalfSize),
-             Vec3f(ShadowHalfSize, 40.f, ShadowHalfSize) };
-}
-
 Pair<Mat4f, Mat4f> Renderer::GetSunShadowMatrices() const 
 {
-    // Rotate world shadow bounds into view space.
+    // Transform world shadow bounds into view space.
     Mat4f sunViewMatrix = math::lookAtRH(Vec3fZero, m_sunDirection, fabsf(m_sunDirection.y) < 0.999f ? Vec3fY : Vec3fZ);
 
     // Get AABB of the area we want to cast and receive shadows over.
     AABB3f shadowBounds = GetShadowBounds();
 
-    // Transform AABB and recalculate bounds in shadow space.
-    AABB3f shadowSpaceBounds = shadowBounds.Transformed(sunViewMatrix);
+    // Debug option to view shadow bounds from different angles.
+    if (s_debugState.m_freezeCascades)
+    {
+        if (s_debugState.m_frozenShadowBounds.IsValid())
+        {
+            shadowBounds = s_debugState.m_frozenShadowBounds;
+        }
+        else
+        {
+            s_debugState.m_frozenShadowBounds = shadowBounds;
+        }
+    }
 
+    // Transform AABB and recalculate bounds in shadow space.
+    AABB3f shadowSpaceBounds = shadowBounds.AffineTransformed(sunViewMatrix);
+
+    // Increase z bounds to allow geometry off-camera which should still cast shadows.
+    shadowSpaceBounds.m_min.z -= 100.f;
+    
+    // Debug draw.
+    if (s_debugState.m_drawShadowBounds)
+    {
+        DebugDraw::Instance().DrawAABB3f(shadowBounds, Vec4u8(0xff, 0x00, 0x00, 0xff));
+        DebugDraw::Instance().DrawAABB3f(shadowSpaceBounds, Vec4u8(0x00, 0xff, 0x00, 0xff), math::inverse(sunViewMatrix));
+    }
+    
     // Create an ortho projection matrix out of the bounds.
-    Mat4f proj = math::orthoRH(shadowSpaceBounds.m_min.x, shadowSpaceBounds.m_max.x, shadowSpaceBounds.m_min.y, shadowSpaceBounds.m_max.y, shadowSpaceBounds.m_min.z, shadowSpaceBounds.m_max.z);
+    // Negate and swap min/max Z to account for right-handed world/view space. 
+    // In view space, +Z goes back from the camera,  whereas in clip space it goes in front of it.
+    // Hence, the "max" of the view box in view space is actually the near plane, and the "min" is the far plane.
+    Mat4f proj = math::orthoRH(shadowSpaceBounds.m_min.x, shadowSpaceBounds.m_max.x, shadowSpaceBounds.m_min.y, shadowSpaceBounds.m_max.y, -shadowSpaceBounds.m_max.z, -shadowSpaceBounds.m_min.z);
+
     return { sunViewMatrix, proj };
+}
+
+AABB3f Renderer::GetShadowBounds() const
+{
+    // Get view frustum corners in world space
+    Mat4f invViewProjMat = math::inverse(m_projMat * m_viewMat);
+    Vec3f frustumCorners[8];
+    for (int z = 0; z < 2; ++z)
+    {
+        for (int y = 0; y < 2; ++y)
+        {
+            for (int x = 0; x < 2; ++x)
+            {
+                // Note: x,y are [-1, 1], z is [0,1]
+                int i = z * 4 + y * 2 + x;
+                Vec4f point = invViewProjMat * Vec4f(2.f * (float)x - 1.f, 2.f * (float)y - 1.f, (float)z, 1.f);
+                frustumCorners[i] = Vec3f(point) / point.w;
+            }
+        }
+    }
+
+    // TODO: Get this from a scenegraph or similar
+    AABB3f sceneBounds{ Vec3f(-450.f, -30.f, -450.f), Vec3f(450.f, 30.f, 450.f) };
+
+    // Cast a ray from the camera to each point and intersect with the lower bounding plane of the scene.
+    // This limits the depth of the frustum to the area we actually care about, and prevents the area we shadow map getting too big.
+    //
+    //  x                  <-- Camera
+    //   \`
+    //    \ `
+    //     \__`______
+    //     |\   `    |     <-- Scene bounds
+    //     |_\____`__|
+    //        \     `      }
+    //         \      `    } This region is redundant
+    //          \       `  }
+
+    //
+    // TODO: This could be better if we conservatively clip the frustum with the scene's AABB (in all axes) instead,
+    // but this works quite well for now with minimal effort. I'm not sure right now how to do that without 
+    // building frustum planes and clipping against each individually.
+    //
+
+    // Intersect far plane corners againt bottom of the scene.
+    Vec3f camPos = Vec3f(math::affineInverse(m_viewMat)[3]);
+    Planef lowPlane{ Vec3f(0.f, 1.f, 0.f), -30.f };
+    for (int i = 4; i < 8; ++i)
+    {
+        Vec3f dir = frustumCorners[i] - camPos;
+        float t = lowPlane.RayIntersect(Rayf(camPos, dir));
+        if (0.f < t && t < 1.f)
+        {
+            frustumCorners[i] = camPos + t * dir;
+        }
+    }  
+
+    // Clamp frustum corners against scene bounds
+    for (Vec3f& point : frustumCorners)
+    {
+        point = math::max(point, sceneBounds.m_min);
+        point = math::min(point, sceneBounds.m_max);
+    }
+
+    // Build an AABB around them
+    AABB3f aabb;
+    aabb.SetFromPoints((int)std::size(frustumCorners), frustumCorners);
+    return aabb;
 }
 
 }
