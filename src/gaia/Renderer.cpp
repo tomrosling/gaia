@@ -1177,6 +1177,63 @@ Pair<Mat4f, Mat4f> Renderer::GetSunShadowMatrices() const
     return { sunViewMatrix, proj };
 }
 
+
+
+
+#if 0
+static float FindPlaneXAtYZ(const Planef& plane, float y, float z)
+{
+    Assert(fabsf(plane.m_normal.x) >= FLT_EPSILON);
+    //dot(Vec3f(x, y, z), plane.m_normal) == plane.m_depth;
+    //x * plane.m_normal.x + y * plane.m_normal.y + z * plane.m_normal.z == plane.m_depth;
+    return (plane.m_depth - (y * plane.m_normal.y + z * plane.m_normal.z)) / plane.m_normal.x;
+}
+
+void ClipAABBToPlaneConservative(AABB3f& aabb, const Planef& plane)
+{
+    using namespace math;
+
+    // The goal here is to shrink the AABB as much as possible, without removing
+    // any part of it which intersects the plane.
+    //
+    //
+    //  New bounds
+    //  v       v
+    //   ____\____
+    //  |     \ | |
+    //  |______\|_|
+    //          \
+    //           \
+    //
+
+    // Find which corner of the aabb most overlaps the plane
+    Vec3b normalPositive = greaterThanEqual(plane.m_normal, Vec3fZero);
+    Vec3f clipCorner = Vec3Select(aabb.m_max, aabb.m_min, normalPositive);
+
+    // For each axis, find the largest bound based on the other two axes
+    // e.g. planeBoundX is the plane equation solved for x given y and z
+    // dot(clipCorner, plane.m_normal) == plane.m_depth;
+    // x * plane.m_normal.x + dot(clipCorner, plane.m_normal) == plane.m_depth + x * plane.m_normal.x
+    // x * plane.m_normal.x = plane.m_depth - dot(clipCorner, plane.m_normal) + clipCorner.x * plane.m_normal.x
+    // x = (plane.m_depth - dot(clipCorner, plane.m_normal)) / plane.m_normal.x + clipCorner.x
+    float planeBoundX = FindPlaneXAtYZ(clipCorner.y, clipCorner.z);
+    float planeBoundY = FindPlaneYAtXZ(clipCorner.x, clipCorner.z);
+    float planeBoundZ = FindPlaneZAtXY(clipCorner.x, clipCorner.y);
+
+    if (normalSign.x >= 0.f)
+    {
+        aabb.m_min.x = math::max(aabb.m_min.x, planeBoundX);
+    }
+    else
+    {
+        aabb.m_max.x = math::min(aabb.m_max.x, planeBoundX);
+    }
+    
+    // ...etc
+}
+#endif
+
+
 AABB3f Renderer::GetShadowBounds() const
 {
     // Get view frustum corners in world space
