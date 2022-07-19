@@ -7,6 +7,7 @@
 #include "Math/GaiaMath.hpp"
 #include "Math/AABB.hpp"
 #include "Math/Plane.hpp"
+#include "File.hpp"
 #include "CommandQueue.hpp"
 #include "GenerateMips.hpp"
 #include "UploadManager.hpp"
@@ -588,6 +589,38 @@ void Renderer::WaitCurrentFrame()
 
 ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage stage)
 {
+    class ShaderIncludeHandler : public ID3DInclude
+    {
+    public:
+        HRESULT Open(D3D_INCLUDE_TYPE includeType, LPCSTR filename, LPCVOID parentData, LPCVOID* data, UINT* bytes) override
+        {
+            // Open include files relative the application's working directory.
+            File file;
+            if (!file.Open(filename, EFileOpenMode::Read))
+            {
+                *data = nullptr;
+                *bytes = 0;
+                return E_INVALIDARG;
+            }
+            
+            // Read the file into a buffer to return to the compiler
+            int length = file.GetLength();
+            char* charData = new char[length + 1];
+            file.Read(charData, length);
+            charData[length] = '\0';
+            *data = charData;
+            *bytes = (UINT)(length + 1);
+
+            return S_OK;
+        }
+
+        HRESULT Close(LPCVOID data) override
+        {
+            delete[] (char*)data;
+            return S_OK;
+        }
+    };
+
     const char* stageTargets[] = {
         "vs_5_1",
         "hs_5_1",
@@ -596,9 +629,10 @@ ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage st
     };
     static_assert(std::size(stageTargets) == (size_t)ShaderStage::Count);
 
+    ShaderIncludeHandler includeHandler;
     ComPtr<ID3DBlob> blob;
     ComPtr<ID3DBlob> error;
-    if (FAILED(::D3DCompileFromFile(filename, nullptr, nullptr, "main", stageTargets[(int)stage], D3DCOMPILE_WARNINGS_ARE_ERRORS, 0, &blob, &error)))
+    if (FAILED(::D3DCompileFromFile(filename, nullptr, &includeHandler, "main", stageTargets[(int)stage], D3DCOMPILE_WARNINGS_ARE_ERRORS, 0, &blob, &error)))
     {
         DebugOut("Failed to load shader '%S':\n\n%s\n\n", filename, error ? error->GetBufferPointer() : "<unknown error>");
         return nullptr;

@@ -742,14 +742,8 @@ bool Terrain::HotloadShaders(Renderer& renderer)
     ComPtr<ID3DBlob> hullShader = renderer.CompileShader(L"TerrainHull.hlsl", ShaderStage::Hull);
     ComPtr<ID3DBlob> domainShader = renderer.CompileShader(L"TerrainDomain.hlsl", ShaderStage::Domain);
     ComPtr<ID3DBlob> pixelShader = renderer.CompileShader(L"TerrainPixel.hlsl", ShaderStage::Pixel);
-
-    // TODO: Fix include handler so we can hotload shadow pass shader too
-
-    //ComPtr<ID3DBlob> shadowDomainShader = renderer.CompileShader(L"TerrainShadowDomain.hlsl", ShaderStage::Domain);
-    //if (!(vertexShader && hullShader && domainShader && pixelShader && shadowDomainShader))
-    //    return false;
-
-    if (!(vertexShader && hullShader && domainShader && pixelShader))
+    ComPtr<ID3DBlob> shadowDomainShader = renderer.CompileShader(L"TerrainShadowDomain.hlsl", ShaderStage::Domain);
+    if (!(vertexShader && hullShader && domainShader && pixelShader && shadowDomainShader))
         return false;
 
     // Force a full CPU/GPU sync then recreate the PSO.
@@ -758,8 +752,8 @@ bool Terrain::HotloadShaders(Renderer& renderer)
     if (!CreatePipelineState(renderer, vertexShader.Get(), hullShader.Get(), domainShader.Get(), pixelShader.Get()))
         return false;
 
-    //if (!CreateShadowPipelineState(renderer, vertexShader.Get(), hullShader.Get(), shadowDomainShader.Get()))
-    //    return false;
+    if (!CreateShadowPipelineState(renderer, vertexShader.Get(), hullShader.Get(), shadowDomainShader.Get()))
+        return false;
 
     ComPtr<ID3DBlob> waterVertexShader = renderer.CompileShader(L"WaterVertex.hlsl", ShaderStage::Vertex);
     ComPtr<ID3DBlob> waterPixelShader = renderer.CompileShader(L"WaterPixel.hlsl", ShaderStage::Pixel);
