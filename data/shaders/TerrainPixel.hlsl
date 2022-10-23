@@ -15,14 +15,16 @@ Texture2D DiffuseTex0 : register(t0);
 Texture2D DiffuseTex1 : register(t1);
 Texture2D NormalTex0 : register(t2);
 Texture2D NormalTex1 : register(t3);
-SamplerState StaticSampler : register(s0);
-
+Texture2D SunShadowMap : register(t4);
+SamplerState BasicSampler : register(s0);
+SamplerComparisonState ShadowSampler : register(s1);
 
 struct DomainShaderOutput
 {
     float3 worldPos : POSITION;
     float3 nrm : NORMAL;
     float3 tangent : TANGENT;
+    float4 shadowPos : SHADOWPOS;
 };
 
 float4 main(DomainShaderOutput IN) : SV_Target
@@ -43,28 +45,35 @@ float4 main(DomainShaderOutput IN) : SV_Target
     float3x3 tbn = float3x3(tangent, bitangent, vertexNormal);
     
     // Sample normal maps.
-    float3 grassNrm = NormalTex0.Sample(StaticSampler, uv).xyz;
-    float3 rocksNrm = NormalTex1.Sample(StaticSampler, uv).xyz;
+    float3 grassNrm = NormalTex0.Sample(BasicSampler, uv).xyz;
+    float3 rocksNrm = NormalTex1.Sample(BasicSampler, uv).xyz;
     float3 detailNrm = lerp(grassNrm, rocksNrm, texBlend);
     detailNrm = 2.0 * detailNrm - 1.0;
     float3 nrm = mul(detailNrm, tbn);
     
-    // Calculate diffuse lighting
+    // Calculate ambient and diffuse lighting.
     float ndotl = max(-dot(nrm, SunDirection), 0.0);
-    float3 grassDiffuse = DiffuseTex0.Sample(StaticSampler, uv).rgb;
-    float3 rocksDiffuse = DiffuseTex1.Sample(StaticSampler, uv).rgb;
-    float3 diffuse = lerp(grassDiffuse, rocksDiffuse, texBlend);
-    diffuse *= ndotl;
+    float3 grassAlbedo = DiffuseTex0.Sample(BasicSampler, uv).rgb;
+    float3 rocksAlbedo = DiffuseTex1.Sample(BasicSampler, uv).rgb;
+    float3 albedo = lerp(grassAlbedo, rocksAlbedo, texBlend);
+    float3 ambient = 0.1 * albedo;
+    float3 diffuse = 0.85 * ndotl * albedo;
 
-    // Specular: this is probably awful.
-    //float3 r = reflect(SunDirection, nrm);
-    //float3 viewDir = normalize(CamPos - IN.worldPos);
-    //float specular = pow(saturate(dot(r, viewDir)), 256.0);
-
+    // Transform shadow pos from clip space [-1, 1] to texture space [0, 1] (depth is already [0, 1])
+    float3 lightSpaceCoords = (IN.shadowPos.xyz / IN.shadowPos.w);
+    lightSpaceCoords.x =  lightSpaceCoords.x * 0.5 + 0.5;
+    lightSpaceCoords.y = -lightSpaceCoords.y * 0.5 + 0.5;
+    
+    // Sample shadow map to occlude diffuse light.
+    float pixelShadowDepth = min(lightSpaceCoords.z, 1.0); // Clamp depth to the range of the shadowmap
+    float bias = 0.005;
+    float shadowFactor = SunShadowMap.SampleCmp(ShadowSampler, lightSpaceCoords.xy, pixelShadowDepth - bias).r;        
+    diffuse *= shadowFactor;
+    
     // Selection highlight
     float2 highlightOffset = IN.worldPos.xz - HighlightPosXZ;
     float highlightDistSq = dot(highlightOffset, highlightOffset);
     float3 highlight = float3(0.45, 0.45, 0.45) * smoothstep(0.0, 1.0, HighlightRadiusSq - highlightDistSq);
 
-    return float4(0.9 * diffuse /*+ 0.1 * specular*/ + highlight, 1.0);
+    return float4(ambient + diffuse + highlight, 1.0);
 }

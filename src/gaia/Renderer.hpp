@@ -1,4 +1,6 @@
 #pragma once
+#include "MappedConstantBuffer.hpp"
+#include "Math/AABB.hpp"
 
 interface IDXGIFactory4;
 interface IDXGIAdapter1;
@@ -17,6 +19,7 @@ namespace gaia
 class CommandQueue;
 class GenerateMips;
 class UploadManager;
+struct VSSharedConstants;
 
 namespace RootParam
 {
@@ -31,6 +34,7 @@ enum E
     Texture1, //       can ensure that the descriptors used will be contiguous.
     Texture2, //
     Texture3, //
+    SunShadowMap,
     Sampler0,
     Count
 };
@@ -46,13 +50,16 @@ public:
     bool ResizeViewport(int width, int height);
     void BeginFrame();
     void EndFrame();
+    void BeginShadowPass();
+    void EndShadowPass();
+    void BeginGeometryPass();
+    void EndGeometryPass();
     void WaitCurrentFrame();
     int GetCurrentBuffer() const { return m_currentBuffer; }
 
     void SetViewMatrix(const Mat4f& viewMat) { m_viewMat = viewMat; }
     const Mat4f& GetViewMatrix() const { return m_viewMat; }
     Vec3f GetCamPos() const { return Vec3f(math::affineInverse(m_viewMat)[3]); }
-    void UploadModelMatrix(const Mat4f& modelMat);
 
     void SetSunDirection(const Vec3f& dir) { m_sunDirection = dir; }
 
@@ -75,6 +82,10 @@ public:
     // Creates a resident buffer and an upload buffer. The user is expected to fill the upload buffer and trigger the copy;
     // A reference to the upload buffer is held internally until the upload completes.
     ComPtr<ID3D12Resource> CreateBuffer(ID3D12Resource*& outUploadBuffer, size_t size);
+
+    // Creates and maps a constant buffer with space for each frame in the swapchain.
+    template<typename DataType>
+    void CreateMappedConstantBuffer(MappedConstantBuffer<DataType>& outMappedBuffer);
 
     // Lower-level single buffer creation.
     ComPtr<ID3D12Resource> CreateResidentBuffer(size_t size);
@@ -141,6 +152,11 @@ private:
     bool CreateRootSignature();
     bool CreateImgui(HWND hwnd);
 
+    D3D12_CPU_DESCRIPTOR_HANDLE GetMainDSV();
+    D3D12_CPU_DESCRIPTOR_HANDLE GetSunShadowDSV();
+    Pair<Mat4f, Mat4f> GetSunShadowMatrices() const;
+    AABB3f GetShadowBounds() const;
+
     ComPtr<IDXGIFactory4> m_factory;
     ComPtr<IDXGIAdapter1> m_adapter;
     ComPtr<ID3D12Device2> m_device;
@@ -164,6 +180,12 @@ private:
     ComPtr<ID3D12QueryHeap> m_statsQueryHeap;
     ComPtr<ID3D12Resource> m_statsQueryBuffers[BackbufferCount];
 
+    ComPtr<ID3D12Resource> m_sunShadowDepthBuffer;
+    int m_sunShadowmapDescIndex = -1;
+
+    MappedConstantBuffer<VSSharedConstants> m_vsSharedConstants;
+    MappedConstantBuffer<VSSharedConstants> m_vsSharedConstantsShadowPass;
+
     std::unique_ptr<CommandQueue> m_directCommandQueue;
     std::unique_ptr<CommandQueue> m_copyCommandQueue;
     std::unique_ptr<CommandQueue> m_computeCommandQueue;
@@ -171,7 +193,6 @@ private:
     std::unique_ptr<gaia::GenerateMips> m_genMips;
 
     D3D12_VIEWPORT m_viewport = {};
-    D3D12_RECT m_scissorRect = { 0, 0, LONG_MAX, LONG_MAX };
 
     UINT64 m_frameFenceValues[BackbufferCount] = {};
     UINT64 m_depthReadbackFenceValue = 0;
@@ -180,6 +201,7 @@ private:
     int m_nextComputeDescIndex = 0;
     int m_currentBuffer = 0;
     UINT m_rtvDescriptorSize = 0;
+    UINT m_dsvDescriptorSize = 0;
     UINT m_cbvDescriptorSize = 0;
     UINT m_samplerDescriptorSize = 0;
     bool m_created = false;
@@ -190,4 +212,12 @@ private:
     Vec3f m_sunDirection = math::normalize(Vec3f(0.65f, -0.5f, 0.65f));
 };
 
+
+template <typename DataType>
+inline void Renderer::CreateMappedConstantBuffer(MappedConstantBuffer<DataType>& outMappedBuffer) 
+{ 
+    outMappedBuffer.Create(CreateConstantBuffer(typename MappedConstantBuffer<DataType>::TotalSize()).Get()); 
 }
+
+
+} // namespace gaia

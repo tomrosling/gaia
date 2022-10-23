@@ -1,5 +1,4 @@
 #pragma once
-#include "GaiaMath.hpp"
 
 namespace gaia
 {

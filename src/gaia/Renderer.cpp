@@ -1,12 +1,18 @@
-#include "renderer.hpp"
+#include "Renderer.hpp"
 #include <DirectXTex/DirectXTex.h>
 #include <DDSTextureLoader/DDSTextureLoader12.h>
 #include <WICTextureLoader/WICTextureLoader12.h>
 #include <examples/imgui_impl_win32.h>
 #include <examples/imgui_impl_dx12.h>
+#include "Math/GaiaMath.hpp"
+#include "Math/AABB.hpp"
+#include "Math/Plane.hpp"
+#include "File.hpp"
 #include "CommandQueue.hpp"
 #include "GenerateMips.hpp"
 #include "UploadManager.hpp"
+
+#include "DebugDraw.hpp"
 
 namespace gaia
 {
@@ -15,6 +21,8 @@ static constexpr int CBufferAlignment = 256;
 static constexpr int NumCBVDescriptors = 32;
 static constexpr int NumComputeDescriptors = 64;
 static constexpr int NumSamplers = 1;
+
+static constexpr int SunShadowmapSize = 4096;
 
 static int CountMips(int width, int height)
 {
@@ -29,6 +37,7 @@ struct VSSharedConstants
     Mat4f viewMat;
     Mat4f projMat;
     Mat4f mvpMat;
+    Mat4f shadowMvpMat;
 };
 
 struct PSSharedConstants
@@ -38,6 +47,31 @@ struct PSSharedConstants
     Vec3f sunDirection;
     float pad2;
 };
+
+namespace StaticSampler
+{
+enum E
+{
+    Basic,
+    Shadowmap,
+    Count
+};
+}
+
+
+// Debug state.
+// TODO: Move this to its own file and improve interface.
+struct RendererDebugState
+{
+    bool m_freezeCascades = false;
+    bool m_drawShadowBounds = false;
+    AABB3f m_frozenShadowBounds = AABB3fInvalid;
+};
+
+static RendererDebugState s_debugState;
+
+
+
 
 Renderer::Renderer()
 {
@@ -124,7 +158,7 @@ bool Renderer::Create(HWND hwnd)
 
     // Create DSV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
-    dsvHeapDesc.NumDescriptors = 1;
+    dsvHeapDesc.NumDescriptors = 2;
     dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
     dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     if (FAILED(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvDescHeap))))
@@ -158,6 +192,7 @@ bool Renderer::Create(HWND hwnd)
         return false;
 
     m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    m_dsvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
     m_cbvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     m_samplerDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
@@ -172,7 +207,11 @@ bool Renderer::Create(HWND hwnd)
     {
         buf = CreateReadbackBuffer(sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS));
     }
-    
+
+    // Create constant buffers
+    CreateMappedConstantBuffer(m_vsSharedConstants);
+    CreateMappedConstantBuffer(m_vsSharedConstantsShadowPass);
+
     // Create command allocators
     for (auto& allocator : m_commandAllocators)
     {
@@ -268,13 +307,29 @@ bool Renderer::ResizeViewport(int width, int height)
                                                  D3D12_RESOURCE_STATE_COMMON, &depthClear, IID_PPV_ARGS(&m_depthBuffer))))
         return false;
 
-    // Create DSV.
-    D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
-    dsv.Format = DXGI_FORMAT_D32_FLOAT;
-    dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-    dsv.Texture2D.MipSlice = 0;
-    dsv.Flags = D3D12_DSV_FLAG_NONE;
-    m_device->CreateDepthStencilView(m_depthBuffer.Get(), &dsv, m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart());
+    // Create sun shadows depth buffer
+    CD3DX12_RESOURCE_DESC sunShadowDepthResourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+        DXGI_FORMAT_D32_FLOAT, SunShadowmapSize, SunShadowmapSize, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    if (FAILED(m_device->CreateCommittedResource(&depthHeapProperties, D3D12_HEAP_FLAG_NONE, &sunShadowDepthResourceDesc,
+                                                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &depthClear, IID_PPV_ARGS(&m_sunShadowDepthBuffer))))
+        return false;
+
+    ID3D12Resource* sunShadowMapTex[] = { m_sunShadowDepthBuffer.Get() };
+    m_sunShadowmapDescIndex = AllocateTex2DSRVs(1, sunShadowMapTex, DXGI_FORMAT_R32_FLOAT);
+
+    // Create DSVs.
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsvDesc.Texture2D.MipSlice = 0;
+    dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+    m_device->CreateDepthStencilView(m_depthBuffer.Get(), &dsvDesc, GetMainDSV());
+    m_device->CreateDepthStencilView(m_sunShadowDepthBuffer.Get(), &dsvDesc, GetSunShadowDSV());
+
+#ifdef _DEBUG
+    m_depthBuffer->SetName(L"Main Depth Buffer");
+    m_sunShadowDepthBuffer->SetName(L"Sun Shadowmap");
+#endif
 
     // Create a readback buffer for the depth.
     m_depthReadbackBuffer = CreateReadbackBuffer(GetTexturePitchBytes(width, sizeof(float)) * height);
@@ -299,10 +354,11 @@ bool Renderer::CreateRootSignature()
     D3D12_DESCRIPTOR_RANGE1 srvDescRange1 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange2 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
     D3D12_DESCRIPTOR_RANGE1 srvDescRange3 = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
-    D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 1);
+    D3D12_DESCRIPTOR_RANGE1 sunShadowMapDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 4);
+    D3D12_DESCRIPTOR_RANGE1 samplerSrvDescRange = CD3DX12_DESCRIPTOR_RANGE1(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, StaticSampler::Count);
 
     CD3DX12_ROOT_PARAMETER1 rootParams[RootParam::Count];
-    rootParams[RootParam::VSSharedConstants].InitAsConstants(sizeof(VSSharedConstants) / 4, 0, 0, D3D12_SHADER_VISIBILITY_ALL); // TODO: tidy up or rename! We're running out of root signature space. They should probably be in a cbuffer instead.
+    rootParams[RootParam::VSSharedConstants].InitAsConstantBufferView(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE, D3D12_SHADER_VISIBILITY_ALL); // TODO: Rename!
     rootParams[RootParam::PSSharedConstants].InitAsConstants(sizeof(PSSharedConstants) / 4, 1, 0, D3D12_SHADER_VISIBILITY_ALL); //
     rootParams[RootParam::PSConstantBuffer].InitAsDescriptorTable(1, &cbvDescRange, D3D12_SHADER_VISIBILITY_ALL); // TODO: Rename!
     rootParams[RootParam::VertexTexture0].InitAsDescriptorTable(1, &vertexTexture0SrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
@@ -311,29 +367,23 @@ bool Renderer::CreateRootSignature()
     rootParams[RootParam::Texture1].InitAsDescriptorTable(1, &srvDescRange1, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture2].InitAsDescriptorTable(1, &srvDescRange2, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Texture3].InitAsDescriptorTable(1, &srvDescRange3, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[RootParam::SunShadowMap].InitAsDescriptorTable(1, &sunShadowMapDescRange, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[RootParam::Sampler0].InitAsDescriptorTable(1, &samplerSrvDescRange, D3D12_SHADER_VISIBILITY_DOMAIN);
 
     // Static sampler for textures.
-    D3D12_STATIC_SAMPLER_DESC samplerDesc = {};
-    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.MipLODBias = 0;
-    samplerDesc.MaxAnisotropy = 0;
-    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-    samplerDesc.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-    samplerDesc.MinLOD = 0.0f;
-    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
-    samplerDesc.ShaderRegister = 0;
-    samplerDesc.RegisterSpace = 0;
-    samplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    CD3DX12_STATIC_SAMPLER_DESC staticSamplers[StaticSampler::Count];
+    staticSamplers[StaticSampler::Basic].Init(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR);
+    staticSamplers[StaticSampler::Basic].MaxAnisotropy = 0;
+    staticSamplers[StaticSampler::Shadowmap].Init(1, D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR);
+    staticSamplers[StaticSampler::Shadowmap].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[StaticSampler::Shadowmap].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[StaticSampler::Shadowmap].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
     D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
-    rootSignatureDesc.Init_1_1((UINT)std::size(rootParams), rootParams, 1, &samplerDesc, rootSignatureFlags);
+    rootSignatureDesc.Init_1_1(RootParam::Count, rootParams, StaticSampler::Count, staticSamplers, rootSignatureFlags);
 
     ComPtr<ID3DBlob> rootSigBlob;
     ComPtr<ID3DBlob> errBlob;
@@ -379,7 +429,6 @@ bool Renderer::CreateImgui(HWND hwnd)
 void Renderer::BeginFrame()
 {
     ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_currentBuffer].Get();
-    ID3D12Resource* backBuffer = m_renderTargets[m_currentBuffer].Get();
 
     // Wait/clear pending uploads.
     m_uploadManager->BeginFrame(*m_copyCommandQueue);
@@ -392,6 +441,7 @@ void Renderer::BeginFrame()
     m_directCommandList->BeginQuery(m_statsQueryHeap.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS, 0);
 
     // Transition render target and depth buffer to a renderable state
+    ID3D12Resource* backBuffer = m_renderTargets[m_currentBuffer].Get();
     CD3DX12_RESOURCE_BARRIER rtBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
     m_directCommandList->ResourceBarrier(1, &rtBarrier);
@@ -405,25 +455,21 @@ void Renderer::BeginFrame()
     float clearColor[] = { 0.3f, 0.65f, 0.99f, 0.0f };
     m_directCommandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
 
-    // Clear depth buffer
-    CD3DX12_CPU_DESCRIPTOR_HANDLE dsv(m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart());
-    m_directCommandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
-
-    // Set shared state
-    m_directCommandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-    m_directCommandList->RSSetViewports(1, &m_viewport);
-    m_directCommandList->RSSetScissorRects(1, &m_scissorRect);
-    m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
-
-    // Set global uniforms
-    UploadModelMatrix(Mat4fIdentity);
-
-    PSSharedConstants pixelConstants = { Vec3f(math::affineInverse(m_viewMat)[3]), 0.f, m_sunDirection, 0.f };
-    m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::PSSharedConstants, sizeof(PSSharedConstants) / 4, &pixelConstants, 0);
+    // Clear depth buffers
+    m_directCommandList->ClearDepthStencilView(GetMainDSV(), D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
 
     // Set descriptor heaps.
     ID3D12DescriptorHeap* descriptorHeaps[] = { m_cbvDescHeaps[m_currentBuffer].Get(), m_samplerDescHeap.Get() };
     m_directCommandList->SetDescriptorHeaps((int)std::size(descriptorHeaps), descriptorHeaps);
+
+    // Clear scissor state and set root signature
+    D3D12_RECT scissorRect = { 0, 0, LONG_MAX, LONG_MAX };
+    m_directCommandList->RSSetScissorRects(1, &scissorRect);
+    m_directCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+    // Set global constants
+    PSSharedConstants pixelConstants = { Vec3f(math::affineInverse(m_viewMat)[3]), 0.f, m_sunDirection, 0.f };
+    m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::PSSharedConstants, sizeof(PSSharedConstants) / 4, &pixelConstants, 0);
 }
 
 void Renderer::EndFrame()
@@ -476,19 +522,105 @@ void Renderer::EndFrame()
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer]);
 }
 
+void Renderer::BeginShadowPass()
+{
+    // Transition depth buffer to a renderable state
+    CD3DX12_RESOURCE_BARRIER dsBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_sunShadowDepthBuffer.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    m_directCommandList->ResourceBarrier(1, &dsBarrier);
+
+    // Clear depth buffer
+    m_directCommandList->ClearDepthStencilView(GetSunShadowDSV(), D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
+
+    // Set render target and viewport
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv = GetSunShadowDSV();
+    m_directCommandList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+    CD3DX12_VIEWPORT viewport(0.f, 0.f, (float)SunShadowmapSize, (float)SunShadowmapSize);
+    m_directCommandList->RSSetViewports(1, &viewport);
+
+    // Set VSSharedConstants (matrices) buffer for this pass
+    VSSharedConstants& constants = *m_vsSharedConstantsShadowPass.GetMappedData(m_currentBuffer);
+    const auto& [viewMat, projMat] = GetSunShadowMatrices();
+    constants.viewMat = viewMat;
+    constants.projMat = projMat;
+    constants.mvpMat = projMat * viewMat; // Note: no model matrix for now
+    constants.shadowMvpMat = Mat4fIdentity;
+    m_directCommandList->SetGraphicsRootConstantBufferView(RootParam::VSSharedConstants, m_vsSharedConstantsShadowPass.GetBufferGPUVirtualAddress(m_currentBuffer));
+}
+
+void Renderer::EndShadowPass()
+{
+    // Transition depth buffer to allow lighting to read it
+    CD3DX12_RESOURCE_BARRIER dsBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_sunShadowDepthBuffer.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    m_directCommandList->ResourceBarrier(1, &dsBarrier);
+}
+
+void Renderer::BeginGeometryPass()
+{
+    // Set shared state
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBuffer, m_rtvDescriptorSize);
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv = GetMainDSV();
+    m_directCommandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    m_directCommandList->RSSetViewports(1, &m_viewport);
+
+    // Set VSSharedConstants (matrices) buffer for this pass
+    VSSharedConstants& constants = *m_vsSharedConstants.GetMappedData(m_currentBuffer);
+    constants.viewMat = m_viewMat;
+    constants.projMat = m_projMat;
+    constants.mvpMat = m_projMat * m_viewMat; // Note: no model matrix for now
+    const auto& [shadowView, shadowProj] = GetSunShadowMatrices();
+    constants.shadowMvpMat = shadowProj * shadowView;
+    m_directCommandList->SetGraphicsRootConstantBufferView(RootParam::VSSharedConstants, m_vsSharedConstants.GetBufferGPUVirtualAddress(m_currentBuffer));
+
+    // Bind sun shadow map
+    BindDescriptor(m_sunShadowmapDescIndex, RootParam::SunShadowMap);
+}
+
+void Renderer::EndGeometryPass()
+{
+    // Do nothing for now
+}
+
 void Renderer::WaitCurrentFrame()
 {
     m_directCommandQueue->WaitFence(m_frameFenceValues[m_currentBuffer ^ 1]);
 }
 
-void Renderer::UploadModelMatrix(const Mat4f& modelMat)
-{
-    VSSharedConstants vertexConstants = { m_viewMat, m_projMat, m_projMat * (m_viewMat * modelMat) };
-    m_directCommandList->SetGraphicsRoot32BitConstants(RootParam::VSSharedConstants, sizeof(VSSharedConstants) / 4, &vertexConstants, 0);
-}
-
 ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage stage)
 {
+    class ShaderIncludeHandler : public ID3DInclude
+    {
+    public:
+        HRESULT Open(D3D_INCLUDE_TYPE includeType, LPCSTR filename, LPCVOID parentData, LPCVOID* data, UINT* bytes) override
+        {
+            // Open include files relative the application's working directory.
+            File file;
+            if (!file.Open(filename, EFileOpenMode::Read))
+            {
+                *data = nullptr;
+                *bytes = 0;
+                return E_INVALIDARG;
+            }
+            
+            // Read the file into a buffer to return to the compiler
+            int length = file.GetLength();
+            char* charData = new char[length + 1];
+            file.Read(charData, length);
+            charData[length] = '\0';
+            *data = charData;
+            *bytes = (UINT)(length + 1);
+
+            return S_OK;
+        }
+
+        HRESULT Close(LPCVOID data) override
+        {
+            delete[] (char*)data;
+            return S_OK;
+        }
+    };
+
     const char* stageTargets[] = {
         "vs_5_1",
         "hs_5_1",
@@ -497,9 +629,10 @@ ComPtr<ID3DBlob> Renderer::CompileShader(const wchar_t* filename, ShaderStage st
     };
     static_assert(std::size(stageTargets) == (size_t)ShaderStage::Count);
 
+    ShaderIncludeHandler includeHandler;
     ComPtr<ID3DBlob> blob;
     ComPtr<ID3DBlob> error;
-    if (FAILED(::D3DCompileFromFile(filename, nullptr, nullptr, "main", stageTargets[(int)stage], D3DCOMPILE_WARNINGS_ARE_ERRORS, 0, &blob, &error)))
+    if (FAILED(::D3DCompileFromFile(filename, nullptr, &includeHandler, "main", stageTargets[(int)stage], D3DCOMPILE_WARNINGS_ARE_ERRORS, 0, &blob, &error)))
     {
         DebugOut("Failed to load shader '%S':\n\n%s\n\n", filename, error ? error->GetBufferPointer() : "<unknown error>");
         return nullptr;
@@ -989,6 +1122,15 @@ void Renderer::Imgui()
             m_sunDirection = Vec3f(sinf(sunAltitude) * sinf(sunAzimuth), cosf(sunAltitude), sinf(sunAltitude) * cosf(sunAzimuth));
         }
 
+        if (ImGui::CollapsingHeader("Sun Shadows"))
+        {
+            ImGui::Checkbox("Draw Bounds", &s_debugState.m_drawShadowBounds);
+            if (ImGui::Checkbox("Freeze Cascades", &s_debugState.m_freezeCascades))
+            {
+                s_debugState.m_frozenShadowBounds = AABB3fInvalid;
+            }
+        }
+
         if (ImGui::CollapsingHeader("Stats (Direct Command List Only)"))
         {
             // Read stats out of the previous frame's buffer.
@@ -1014,6 +1156,126 @@ void Renderer::Imgui()
         }
     }
     ImGui::End();
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE Renderer::GetMainDSV()
+{
+    return m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart();
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE Renderer::GetSunShadowDSV()
+{
+    return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart(), 1, m_dsvDescriptorSize);
+}
+
+Pair<Mat4f, Mat4f> Renderer::GetSunShadowMatrices() const 
+{
+    // Transform world shadow bounds into view space.
+    Mat4f sunViewMatrix = math::lookAtRH(Vec3fZero, m_sunDirection, fabsf(m_sunDirection.y) < 0.999f ? Vec3fY : Vec3fZ);
+
+    // Get AABB of the area we want to cast and receive shadows over.
+    AABB3f shadowBounds = GetShadowBounds();
+
+    // Debug option to view shadow bounds from different angles.
+    if (s_debugState.m_freezeCascades)
+    {
+        if (s_debugState.m_frozenShadowBounds.IsValid())
+        {
+            shadowBounds = s_debugState.m_frozenShadowBounds;
+        }
+        else
+        {
+            s_debugState.m_frozenShadowBounds = shadowBounds;
+        }
+    }
+
+    // Transform AABB and recalculate bounds in shadow space.
+    AABB3f shadowSpaceBounds = shadowBounds.AffineTransformed(sunViewMatrix);
+
+    // Increase z bounds to allow geometry off-camera which should still cast shadows.
+    shadowSpaceBounds.m_min.z -= 100.f;
+    
+    // Debug draw.
+    if (s_debugState.m_drawShadowBounds)
+    {
+        DebugDraw::Instance().DrawAABB3f(shadowBounds, Vec4u8(0xff, 0x00, 0x00, 0xff));
+        DebugDraw::Instance().DrawAABB3f(shadowSpaceBounds, Vec4u8(0x00, 0xff, 0x00, 0xff), math::inverse(sunViewMatrix));
+    }
+    
+    // Create an ortho projection matrix out of the bounds.
+    // Negate and swap min/max Z to account for right-handed world/view space. 
+    // In view space, +Z goes back from the camera,  whereas in clip space it goes in front of it.
+    // Hence, the "max" of the view box in view space is actually the near plane, and the "min" is the far plane.
+    Mat4f proj = math::orthoRH(shadowSpaceBounds.m_min.x, shadowSpaceBounds.m_max.x, shadowSpaceBounds.m_min.y, shadowSpaceBounds.m_max.y, -shadowSpaceBounds.m_max.z, -shadowSpaceBounds.m_min.z);
+
+    return { sunViewMatrix, proj };
+}
+
+AABB3f Renderer::GetShadowBounds() const
+{
+    // Get view frustum corners in world space
+    Mat4f invViewProjMat = math::inverse(m_projMat * m_viewMat);
+    Vec3f frustumCorners[8];
+    for (int z = 0; z < 2; ++z)
+    {
+        for (int y = 0; y < 2; ++y)
+        {
+            for (int x = 0; x < 2; ++x)
+            {
+                // Note: x,y are [-1, 1], z is [0,1]
+                int i = z * 4 + y * 2 + x;
+                Vec4f point = invViewProjMat * Vec4f(2.f * (float)x - 1.f, 2.f * (float)y - 1.f, (float)z, 1.f);
+                frustumCorners[i] = Vec3f(point) / point.w;
+            }
+        }
+    }
+
+    // TODO: Get this from a scenegraph or similar
+    AABB3f sceneBounds{ Vec3f(-450.f, -30.f, -450.f), Vec3f(450.f, 30.f, 450.f) };
+
+    // Cast a ray from the camera to each point and intersect with the lower bounding plane of the scene.
+    // This limits the depth of the frustum to the area we actually care about, and prevents the area we shadow map getting too big.
+    //
+    //  x                  <-- Camera
+    //   \`
+    //    \ `
+    //     \__`______
+    //     |\   `    |     <-- Scene bounds
+    //     |_\____`__|
+    //        \     `      }
+    //         \      `    } This region is redundant
+    //          \       `  }
+
+    //
+    // TODO: This could be better if we conservatively clip the frustum with the scene's AABB (in all axes) instead,
+    // but this works quite well for now with minimal effort. I'm not sure right now how to do that without 
+    // building frustum planes and clipping against each individually.
+    //
+
+    // Intersect far plane corners againt bottom of the scene.
+    Vec3f camPos = Vec3f(math::affineInverse(m_viewMat)[3]);
+    Planef lowPlane{ Vec3f(0.f, 1.f, 0.f), -30.f };
+    for (int i = 4; i < 8; ++i)
+    {
+        Vec3f dir = frustumCorners[i] - camPos;
+        float t = lowPlane.RayIntersect(Rayf(camPos, dir));
+        if (0.f < t && t < 1.f)
+        {
+            frustumCorners[i] = camPos + t * dir;
+        }
+    }  
+
+    // Clamp frustum corners against scene bounds
+    for (Vec3f& point : frustumCorners)
+    {
+        point = math::max(point, sceneBounds.m_min);
+        point = math::min(point, sceneBounds.m_max);
+    }
+
+    // Build an AABB around them
+    AABB3f aabb;
+    aabb.SetFromPoints((int)std::size(frustumCorners), frustumCorners);
+    return aabb;
 }
 
 }

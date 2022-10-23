@@ -30,6 +30,8 @@ using uint64 = uint64_t;
 using float32 = float;
 using float64 = double;
 
+template<typename T1, typename T2> using Pair = std::pair<T1, T2>;
+
 using Microsoft::WRL::ComPtr;
 
 inline void DebugOut(const char* fmt, ...)

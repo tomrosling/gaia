@@ -3,6 +3,7 @@
 namespace gaia
 {
 
+class AABB3f;
 class Renderer;
 
 class DebugDraw
@@ -18,8 +19,10 @@ public:
 
     void Init(Renderer& renderer);
     void Render(Renderer& renderer);
-    void Point(Vec3f pos, float halfSize, Vec4u8 col);
-    void Lines(int numPoints, const Vec3f* points, Vec4u8 col);
+    void DrawPoint(Vec3f pos, float halfSize, Vec4u8 col);
+    void DrawLines(int numPoints, const Vec3f* points, Vec4u8 col);
+    void DrawTransform(const Mat4f& xform, float size = 1.f);
+    void DrawAABB3f(const AABB3f& aabb, Vec4u8 col, const Mat4f& xform = Mat4fIdentity);
 
 private:
     ComPtr<ID3D12PipelineState> m_pipelineState;
